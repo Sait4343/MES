@@ -6,9 +6,6 @@ class WorkerService:
         self.db = DatabaseService()
 
     def get_all_workers(self):
-        """Fetch all user profiles with creator details."""
-        try:
-    def get_all_workers(self):
         """Fetch all user profiles with creator details (Manual Join)."""
         try:
             # 1. Fetch all profiles raw
@@ -38,9 +35,6 @@ class WorkerService:
                     row['updated_by_name'] = user_map[updated_by_id]
                     
             return data
-        except Exception as e:
-            st.error(f"Error fetching workers: {e}")
-            return []
         except Exception as e:
             st.error(f"Error fetching workers: {e}")
             return []
