@@ -134,20 +134,30 @@ def render():
                 st.divider()
                 st.write("#### Співставлення стовпців")
                 
-                db_fields = {
+                db_fields_single = {
                     "email": "Email (для пошуку)",
                     "full_name": "ПІБ",
                     "position": "Посада",
-                    "competence": "Компетенція",
-                    "operation_types": "Типи операцій (через кому)"
+                    "competence": "Компетенція"
                 }
                 
                 excel_headers = ["(Пропустити)"] + list(df_raw.columns)
+                excel_headers_clean = list(df_raw.columns) # For multiselect
+                
                 mapping = {}
                 cols = st.columns(2)
-                for i, (k, v) in enumerate(db_fields.items()):
+                
+                # Single Value Mappings
+                for i, (k, v) in enumerate(db_fields_single.items()):
                     with cols[i % 2]:
                         mapping[k] = st.selectbox(f"{v}", excel_headers, key=f"w_map_{k}")
+
+                # Multi Value Mapping
+                st.write("Merge Columns for Operation Types:")
+                mapping["operation_types"] = st.multiselect(
+                    "Типи операцій (Оберіть декілька стовпців)", 
+                    options=excel_headers_clean
+                )
                 
                 if st.button("🚀 Імпортувати"):
                     with st.spinner("Обробка..."):
