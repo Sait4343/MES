@@ -8,31 +8,39 @@ class WorkerService:
     def get_all_workers(self):
         """Fetch all user profiles with creator details."""
         try:
-            # Join with profiles self-reference using EXPLICIT constraint names
-            # profiles!fk_name syntax avoids ambiguity and "relationship not found" errors
-            query = self.db.client.table("profiles").select(
-                "*, created_by_user:profiles!profiles_created_by_fkey(email, full_name), updated_by_user:profiles!profiles_updated_by_fkey(email, full_name)"
-            ).order("full_name")
-            
+    def get_all_workers(self):
+        """Fetch all user profiles with creator details (Manual Join)."""
+        try:
+            # 1. Fetch all profiles raw
+            query = self.db.client.table("profiles").select("*").order("full_name")
             res = query.execute()
             data = res.data
             
-            # Flatten
-            for row in data:
-                # Helper to format user
-                def fmt(u):
-                    if not u: return None
-                    return u.get('full_name') or u.get('email')
+            if not data:
+                return []
 
-                if 'created_by_user' in row:
-                    row['created_by_name'] = fmt(row['created_by_user'])
-                    del row['created_by_user']
+            # 2. Create Lookup Map (ID -> Name/Email)
+            user_map = {}
+            for row in data:
+                uid = row.get('id')
+                if uid:
+                    user_map[uid] = row.get('full_name') or row.get('email')
+
+            # 3. Map UUIDs to Names manually
+            for row in data:
+                created_by_id = row.get('created_by')
+                updated_by_id = row.get('updated_by')
                 
-                if 'updated_by_user' in row:
-                    row['updated_by_name'] = fmt(row['updated_by_user'])
-                    del row['updated_by_user']
+                if created_by_id and created_by_id in user_map:
+                    row['created_by_name'] = user_map[created_by_id]
+                
+                if updated_by_id and updated_by_id in user_map:
+                    row['updated_by_name'] = user_map[updated_by_id]
                     
             return data
+        except Exception as e:
+            st.error(f"Error fetching workers: {e}")
+            return []
         except Exception as e:
             st.error(f"Error fetching workers: {e}")
             return []
