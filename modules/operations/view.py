@@ -169,7 +169,8 @@ def render():
                     
                     st.success(f"Файл завантажено! Рядків: {len(df_raw)}")
                     st.write("Попередній перегляд (перші 3 рядки):")
-                    st.dataframe(df_raw.head(3))
+                    # Convert to string for display to avoid Arrow serialization errors with mixed types (e.g. int/str in same col)
+                    st.dataframe(df_raw.head(3).astype(str))
                     
                     st.divider()
                     st.subheader("🔗 Налаштування стовпців")
