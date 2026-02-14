@@ -243,15 +243,23 @@ def render_new_order_form(service):
                     st.success("Замовлення створено!")
 
 def render_import_tab(impex):
-     st.subheader("Масове завантаження")
-     
-     if st.session_state.role not in [UserRole.ADMIN, UserRole.MANAGER]:
-         st.info("🔒 Імпорт доступний тільки для менеджерів та адміністраторів.")
-         return
+    st.subheader("Масове завантаження")
+    
+    if st.session_state.role not in [UserRole.ADMIN, UserRole.MANAGER]:
+        st.info("🔒 Імпорт доступний тільки для менеджерів та адміністраторів.")
+        return
 
-     uploaded_file = st.file_uploader("Оберіть файл Excel (.xlsx)", type=['xlsx', 'xls'])
-     
-     if uploaded_file:
+    # Use a key in session state for the uploader to allow resetting
+    if "import_uploader_key" not in st.session_state:
+        st.session_state["import_uploader_key"] = 0
+
+    uploaded_file = st.file_uploader(
+        "Оберіть файл Excel (.xlsx)", 
+        type=['xlsx', 'xls'],
+        key=f"uploader_{st.session_state['import_uploader_key']}"
+    )
+    
+    if uploaded_file:
         try:
             xls = pd.ExcelFile(uploaded_file)
             sheet = st.selectbox("Оберіть аркуш (Sheet)", xls.sheet_names)
@@ -298,12 +306,15 @@ def render_import_tab(impex):
                 
                 if s > 0:
                     st.success(f"✅ Успішно імпортовано: {s}")
+                    # Increment key to reset uploader
+                    st.session_state["import_uploader_key"] += 1
+                    st.rerun()
                 if f > 0:
                     if s == 0:
-                         st.error(f"❌ Не вдалося імпортувати: {f} (Можливо дублікати номерів або помилки даних)")
+                        st.error(f"❌ Не вдалося імпортувати: {f} (Можливо дублікати номерів або помилки даних)")
                     else:
-                         st.warning(f"⚠️ Пропущено/Помилок: {f}")
-                         
+                        st.warning(f"⚠️ Пропущено/Помилок: {f}")
+                        
                 st.cache_data.clear()
                 
         except Exception as e:
