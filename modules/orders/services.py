@@ -116,3 +116,53 @@ class OrderService:
         except Exception as e:
             st.error(f"Error deleting op: {e}")
             return False
+
+    def auto_schedule_order(self, order_id):
+        """
+        Automatically calculate start/end dates for all operations in an order.
+        Logic: Sequential execution based on sort_order.
+        Start Time = Order Start Date (or Now).
+        Next Op Start = Previous Op End.
+        """
+        import datetime
+        try:
+            # 1. Get Order Details for Start Date
+            order = self.get_order_by_id(order_id)
+            if not order: return False
+            
+            start_base = order.get('start_date')
+            if start_base:
+                current_time = datetime.datetime.fromisoformat(start_base)
+                # Ensure timezone awareness if PG requires it, or keep naive if consistent
+                # For simplicity, let's assume naive or matching server/client handling
+            else:
+                current_time = datetime.datetime.now()
+
+            # 2. Get All Operations Sorted
+            ops = self.db.client.table("order_operations").select("*").eq("order_id", order_id).order("sort_order").execute().data
+            
+            updates = []
+            for op in ops:
+                # Calculate Duration (Minutes)
+                qty = op.get('quantity', 0)
+                norm = op.get('norm_time_per_unit', 0) or 0
+                duration_mins = qty * norm
+                
+                # If 0 duration, assume default small window or 0
+                if duration_mins <= 0: duration_mins = 60 # Default 1 hour if unspecified
+
+                end_time = current_time + datetime.timedelta(minutes=duration_mins)
+                
+                # Update Record
+                self.db.client.table("order_operations").update({
+                    "scheduled_start_at": current_time.isoformat(),
+                    "scheduled_end_at": end_time.isoformat()
+                }).eq("id", op['id']).execute()
+                
+                # Next starts when this ends (Sequential)
+                current_time = end_time
+                
+            return True
+        except Exception as e:
+            st.error(f"Auto-schedule failed: {e}")
+            return False

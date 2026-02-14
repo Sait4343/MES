@@ -86,7 +86,90 @@ def main():
     if not ops_data:
         st.info("Для цього замовлення ще не створено детального плану операцій.")
         # TODO: Add button to "Generate Default Plan" if needed
-    else:
+    
+    st.divider()
+    st.subheader("🛠️ Планування виробництва (Маршрут)")
+    
+    with st.container(border=True):
+        # 1. Initialize Planning Session
+        all_sections = sections_service.get_all_sections()
+        if all_sections.empty:
+            st.error("Спочатку створіть Дільниці.")
+        else:
+            sec_dict = {s['id']: s['name'] for s in all_sections.to_dict('records')}
+            
+            # MULTI-SELECT Sections
+            selected_section_ids = st.multiselect(
+                "1. Оберіть дільниці, які будуть задіяні:",
+                options=list(sec_dict.keys()),
+                format_func=lambda x: sec_dict[x]
+            )
+            
+            if selected_section_ids:
+                st.write("---")
+                st.write("##### Додавання операцій по дільницях:")
+                
+                # Fetch Catalog once
+                all_ops = service.get_available_operations()
+                
+                for sec_id in selected_section_ids:
+                    sec_name = sec_dict[sec_id]
+                    with st.expander(f"📍 Дільниця: {sec_name}", expanded=True):
+                        # Filter ops for this section
+                        # Assuming 'section' column in catalog maps to Section Name
+                        sec_ops = [op for op in all_ops if op.get('section') == sec_name]
+                        
+                        if not sec_ops:
+                            st.warning("Немає операцій в каталозі для цієї дільниці.")
+                        else:
+                            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+                            
+                            with c1:
+                                op_options = {op['id']: f"{op.get('operation_key')} | {op.get('article')}" for op in sec_ops}
+                                sel_op_id = st.selectbox(f"Операція ({sec_name})", options=list(op_options.keys()), format_func=lambda x: op_options[x], key=f"op_{sec_id}")
+                            
+                            sel_op = next((op for op in sec_ops if op['id'] == sel_op_id), None)
+                            
+                            with c2:
+                                # Workers for this section
+                                workers = service.get_workers_for_section(sec_name)
+                                w_opts = {w['id']: w['full_name'] for w in workers}
+                                sel_worker = st.selectbox(f"Працівник ({sec_name})", options=[None]+list(w_opts.keys()), format_func=lambda x: w_opts[x] if x else "---", key=f"w_{sec_id}")
+                            
+                            with c3:
+                                qty_val = st.number_input(f"К-ть ({sec_name})", value=order['quantity'], min_value=1, key=f"q_{sec_id}")
+                            
+                            with c4:
+                                st.write("") # Spacer
+                                st.write("")
+                                if st.button("➕ Додати", key=f"btn_{sec_id}"):
+                                    # Add to DB
+                                    new_op = {
+                                        "order_id": order_id,
+                                        "section_id": sec_id,
+                                        "assigned_worker_id": sel_worker,
+                                        "operation_catalog_id": sel_op['id'],
+                                        "operation_name": f"{sel_op.get('operation_key')} - {sel_op.get('article')}", # Snapshot
+                                        "quantity": qty_val,
+                                        "norm_time_per_unit": sel_op.get('norm_time', 0),
+                                        # Sort order: max currently + 1? For now, 0
+                                        "sort_order": len(ops_data) + 1 if ops_data else 1
+                                    }
+                                    res = service.create_order_operation(new_op)
+                                    if res:
+                                        st.success("Додано!")
+                                        st.rerun()
+
+    # AUTO-SCHEDULE BUTTON
+    if ops_data: # This button should only appear if there are operations to schedule
+        st.write("---")
+        if st.button("⚡ Авто-розклад (Розрахувати дати та дедлайни)", type="primary"):
+            with st.spinner("Розрахунок графіку..."):
+                if service.auto_schedule_order(order_id):
+                    st.success("Графік оновлено!")
+                    st.rerun()
+
+    if ops_data: # The rest of the UI (tabs) should only appear if ops_data exists
         # Pre-process data for easy display
         rows = []
         for op in ops_data:
