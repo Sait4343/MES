@@ -157,7 +157,16 @@ def render():
             
             if uploaded_file:
                 try:
-                    df_raw = pd.read_excel(uploaded_file)
+                    # 1. Inspect Excel File for Sheets
+                    xls = pd.ExcelFile(uploaded_file)
+                    sheet_names = xls.sheet_names
+                    
+                    st.write(f"Знайдено аркушів: {len(sheet_names)}")
+                    selected_sheet = st.selectbox("Оберіть аркуш для імпорту", sheet_names)
+                    
+                    # 2. Read Data from Selected Sheet
+                    df_raw = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
+                    
                     st.success(f"Файл завантажено! Рядків: {len(df_raw)}")
                     st.write("Попередній перегляд (перші 3 рядки):")
                     st.dataframe(df_raw.head(3))
