@@ -91,7 +91,16 @@ class OperationsService:
             st.error(f"Error deleting operation: {e}")
             return False
 
-    def import_operations(self, df, column_mapping, user_id=None):
+    def get_all_keys(self):
+        """Fetch all existing operation keys for validation."""
+        try:
+            res = self.db.client.table(self.TABLE).select("operation_key").execute()
+            return {item["operation_key"] for item in res.data if item.get("operation_key")}
+        except Exception as e:
+            st.error(f"Error fetching keys: {e}")
+            return set()
+
+    def import_operations(self, df, column_mapping, user_id=None, update_existing=False):
         """
         Import operations from a dataframe using a column mapping.
         """
@@ -125,8 +134,33 @@ class OperationsService:
             for record in data:
                 record["created_by"] = user_id
                 record["updated_by"] = user_id
+                # Ensure updated_at is fresh
+                if update_existing:
+                    record["updated_at"] = "now()"
+
+        # 3. Duplicate Handling Logic
+        if not update_existing:
+            # SKIP STRATEGY: Filter out keys that allow exist
+            # This requires knowing existing keys. 
+            # To avoid N+1, we fetch all (assuming reasonable size <10k) or handle error.
+            # But handling error per-row in batch is hard. 
+            # Let's use the set we likely have or fetch it.
+            existing_keys = self.get_all_keys()
             
-        # 3. Batch Insert
+            # Filter data
+            # Only keep records where 'operation_key' is NOT in existing_keys
+            # Assumes 'operation_key' is present in data
+            filtered_data = []
+            for record in data:
+                key = record.get("operation_key")
+                if key and str(key) not in existing_keys:
+                    filtered_data.append(record)
+            
+            data = filtered_data
+            if not data:
+                return 0, 0 # All were duplicates
+                
+        # 4. Batch Upsert/Insert
         success_count = 0
         error_count = 0
         
@@ -134,7 +168,15 @@ class OperationsService:
             chunk_size = 100
             for i in range(0, len(data), chunk_size):
                 chunk = data[i:i + chunk_size]
-                self.db.client.table(self.TABLE).insert(chunk).execute()
+                
+                if update_existing:
+                    # UPSERT
+                    # Requires on_conflict constraint
+                    self.db.client.table(self.TABLE).upsert(chunk, on_conflict="operation_key").execute()
+                else:
+                    # INSERT (filtered previously so safe-ish)
+                    self.db.client.table(self.TABLE).insert(chunk).execute()
+                    
                 success_count += len(chunk)
         except Exception as e:
             st.error(f"Import error: {e}")

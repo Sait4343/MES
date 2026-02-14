@@ -351,31 +351,67 @@ def render():
                         mapped_excel_cols = [v for k, v in mapping.items() if v]
                         
                         # 2. Analyze rows
-                        # We consider a row "empty" if ALL mapped columns are empty/NaN
-                        # We consider a row "valid" if at least one mapped column has data
-                        
-                        # Create a subset for analysis
                         df_mapped_subset = df_raw[mapped_excel_cols]
-                        
-                        # Count total
                         total_rows = len(df_mapped_subset)
                         
-                        # Identify empty rows (all null/nan in mapped cols)
-                        # We use .isna().all(axis=1) (or check for empty strings too if needed)
-                        # Let's treat empty strings as NaN for this check
+                        # Empty check
                         is_empty_mask = df_mapped_subset.replace(r'^\s*$', pd.NA, regex=True).isna().all(axis=1)
                         empty_rows_count = is_empty_mask.sum()
                         valid_rows_count = total_rows - empty_rows_count
                         
+                        # 3. DUPLICATE CHECK
+                        # We need to know which column maps to 'operation_key'
+                        key_col_name = mapping.get("operation_key")
+                        duplicate_count = 0
+                        new_count = 0
+                        
+                        if key_col_name and key_col_name != "(Пропустити)":
+                            # Fetch existing keys
+                            existing_keys = service.get_all_keys()
+                            
+                            # Get keys from import (clean them)
+                            import_keys = df_raw[key_col_name].dropna().astype(str).tolist()
+                            
+                            # Count overlap
+                            # Note: This doesn't account for skipping empty rows yet, but gives a rough idea.
+                            # Better: Check only on valid rows
+                            
+                            # Let's iterate valid rows to be precise
+                            # Improve: Vectorized check
+                            valid_df = df_raw[~is_empty_mask].copy()
+                            if key_col_name in valid_df.columns:
+                                valid_df['is_duplicate'] = valid_df[key_col_name].astype(str).isin(existing_keys)
+                                duplicate_count = valid_df['is_duplicate'].sum()
+                                new_count = len(valid_df) - duplicate_count
+                            else:
+                                new_count = len(valid_df)
+                                
+                        else:
+                            st.warning("⚠️ Не вибрано стовпець 'Ключ операції'. Перевірка дублікатів неможлива.")
+                            new_count = valid_rows_count
+
                         # Display Stats
                         st.markdown("#### 📊 Аналіз даних")
-                        c_stat1, c_stat2, c_stat3 = st.columns(3)
+                        c_stat1, c_stat2, c_stat3, c_stat4 = st.columns(4)
                         c_stat1.metric("Всього рядків", total_rows)
-                        c_stat2.metric("Пусті рядки", empty_rows_count, delta_color="inverse")
-                        c_stat3.metric("До імпорту", valid_rows_count)
+                        c_stat2.metric("Пусті", empty_rows_count)
+                        c_stat3.metric("Нові", new_count, delta_color="normal")
+                        c_stat4.metric("Існуючі (Дублі)", duplicate_count, delta_color="inverse")
                         
                         # Options
-                        skip_empty = st.checkbox("🚫 Не імпортувати пусті рядки", value=True)
+                        st.divider()
+                        c_opt1, c_opt2 = st.columns(2)
+                        
+                        skip_empty = c_opt1.checkbox("🚫 Не імпортувати пусті рядки", value=True)
+                        
+                        import_mode = c_opt2.radio(
+                            "Дії з дублікатами:",
+                            ["Пропустити", "Оновити (Перезаписати)"],
+                            index=0,
+                            help="Пропустити: старі дані залишаться. Оновити: дані з файлу замінять старі."
+                        )
+                        update_existing = (import_mode == "Оновити (Перезаписати)")
+                        
                         confirm_import = st.checkbox("✅ Підтверджую імпорт даних (це змінить базу)", key="conf_imp")
 
                         if valid_rows_count == 0:
@@ -391,10 +427,16 @@ def render():
                                         df_to_import = df_raw
                                         
                                     current_user_id = st.session_state.user.id if st.session_state.get("user") else None
-                                    s_count, e_count = service.import_operations(df_to_import, mapping, user_id=current_user_id)
+                                    
+                                    s_count, e_count = service.import_operations(
+                                        df_to_import, 
+                                        mapping, 
+                                        user_id=current_user_id,
+                                        update_existing=update_existing
+                                    )
                                 
                                 if e_count == 0:
-                                    st.success(f"✅ Успішно імпортовано {s_count} рядків!")
+                                    st.success(f"✅ Успішно оброблено {s_count} рядків!")
                                     st.balloons()
                                 else:
                                     st.warning(f"Імпорт завершено. Успішно: {s_count}, Помилок: {e_count}")
