@@ -35,6 +35,10 @@ def render():
                 if col not in df_workers.columns:
                     df_workers[col] = None
 
+            # Add Placeholder "Success Rate" for future
+            if 'success_rate' not in df_workers.columns:
+                df_workers['success_rate'] = 0.0 # 0.0 to 1.0
+
             st.write("### 📝 Швидке редагування")
             st.caption("Редагуйте Посаду та Компетенцію в таблиці. Для зміни Типів операцій використовуйте детальну форму нижче.")
 
@@ -43,12 +47,19 @@ def render():
                 key="workers_editor",
                 column_config={
                      "id": None,
-                     "email": st.column_config.TextColumn("Email", disabled=True),
+                     "email": None, # Hide Email
                      "full_name": "ПІБ",
                      "role": st.column_config.SelectboxColumn("Роль", options=[UserRole.ADMIN, UserRole.MANAGER, UserRole.WORKER, UserRole.VIEWER]),
                      "position": "Посада",
                      "competence": "Компетенція",
                      "operation_types": st.column_config.ListColumn("Типи операцій (Дільниці)"),
+                     "success_rate": st.column_config.ProgressColumn(
+                        "Успішність", 
+                        help="Показник успішності виконання завдань (на майбутнє)", 
+                        format="%.0f%%", 
+                        min_value=0, 
+                        max_value=1
+                     ),
                      "created_at": None
                 },
                 hide_index=True,

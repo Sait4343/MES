@@ -54,6 +54,10 @@ def main():
         from modules.operations import view as ops_view
         ops_view.render()
 
+    elif selected_page == "sections":
+        from modules.sections import view as sections_view
+        sections_view.render()
+
     elif selected_page == "settings":
         settings_view.render()
 
