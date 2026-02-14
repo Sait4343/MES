@@ -1,5 +1,6 @@
 from core.database import DatabaseService
 import streamlit as st
+import pandas as pd
 
 class WorkerService:
     def __init__(self):
