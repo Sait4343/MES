@@ -50,6 +50,10 @@ def main():
     elif selected_page == "analytics":
         analytics_view.render()
 
+    elif selected_page == "operations":
+        from modules.operations import view as ops_view
+        ops_view.render()
+
     elif selected_page == "settings":
         settings_view.render()
 
