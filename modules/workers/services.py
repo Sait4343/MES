@@ -6,9 +6,33 @@ class WorkerService:
         self.db = DatabaseService()
 
     def get_all_workers(self):
-        """Fetch all user profiles."""
+        """Fetch all user profiles with creator details."""
         try:
-            return self.db.client.table("profiles").select("*").order("full_name").execute().data
+            # Join with profiles self-reference
+            # Fetch normal fields + created_by user name + updated_by user name
+            query = self.db.client.table("profiles").select(
+                "*, created_by_user:created_by(email, full_name), updated_by_user:updated_by(email, full_name)"
+            ).order("full_name")
+            
+            res = query.execute()
+            data = res.data
+            
+            # Flatten
+            for row in data:
+                # Helper to format user
+                def fmt(u):
+                    if not u: return None
+                    return u.get('full_name') or u.get('email')
+
+                if 'created_by_user' in row:
+                    row['created_by_name'] = fmt(row['created_by_user'])
+                    del row['created_by_user']
+                
+                if 'updated_by_user' in row:
+                    row['updated_by_name'] = fmt(row['updated_by_user'])
+                    del row['updated_by_user']
+                    
+            return data
         except Exception as e:
             st.error(f"Error fetching workers: {e}")
             return []
@@ -36,18 +60,21 @@ class WorkerService:
             st.error(f"Error updating role: {e}")
             return None
 
-    def update_worker_profile(self, user_id, data):
+    def update_worker_profile(self, user_id, data, current_user_id=None):
         """Update worker profile details (Position, Competence, Op Types)."""
         try:
+            if current_user_id:
+                data['updated_by'] = current_user_id
+            
             return self.db.client.table("profiles").update(data).eq("id", user_id).execute()
         except Exception as e:
             st.error(f"Error updating profile: {e}")
             return None
 
-    def import_workers(self, df, column_mapping):
+    def import_workers(self, df, column_mapping, user_id=None):
         """
         Import/Update workers from Excel.
-        Match by EMAIL. If email found, update fields.
+        Match by FULL NAME. If name found, update fields.
         column_mapping: dict where keys are DB fields, values are Excel headers (or list of headers for multi-select)
         """
         # 1. Separate Multi-Column Mappings (like operation_types)
@@ -74,21 +101,32 @@ class WorkerService:
         
         # 4. Fetch existing for matching
         all_workers = self.get_all_workers()
-        email_map = {w['email']: w['id'] for w in all_workers if w.get('email')}
+        # Map Clean Name -> ID
+        name_map = {}
+        for w in all_workers:
+            nm = w.get('full_name')
+            if nm:
+                name_map[str(nm).strip().lower()] = w['id']
         
         for i, row in enumerate(data):
-            # Access original row for multi-col data (using index i, assuming data order preserved)
+            # Access original row for multi-col data
             original_row = df.iloc[i]
             
-            email = row.get('email')
-            if email and email in email_map:
+            name = str(row.get('full_name', '')).strip()
+            name_key = name.lower()
+            
+            if name_key and name_key in name_map:
                 # Update existing
                 try:
                     # Clean up data
                     update_data = {}
-                    if 'full_name' in row: update_data['full_name'] = row['full_name']
                     if 'position' in row: update_data['position'] = row['position']
                     if 'competence' in row: update_data['competence'] = str(row['competence'])
+                    if 'comment' in row: update_data['comment'] = str(row['comment'])
+                    
+                    if user_id:
+                        update_data['updated_by'] = user_id
+                        # If created_by is null, claim it? (Optional, maybe logic is complex)
                     
                     # Handle Multi-Column Operation Types
                     ops_list = []
@@ -113,12 +151,22 @@ class WorkerService:
                         update_data['operation_types'] = sorted(list(set(ops_list)))
                     
                     if update_data:
-                        self.db.client.table("profiles").update(update_data).eq("id", email_map[email]).execute()
+                        self.db.client.table("profiles").update(update_data).eq("id", name_map[name_key]).execute()
                         success += 1
                 except Exception:
                     errors += 1
             else:
-                # Email not found
+                # Name not found - Cannot create auth user easily here without email/password
+                # Log error or skip
                 errors += 1
                 
         return success, errors
+
+    def delete_worker(self, user_id):
+        """Delete a worker from profiles."""
+        try:
+            self.db.client.table("profiles").delete().eq("id", user_id).execute()
+            return True
+        except Exception as e:
+            st.error(f"Error deleting worker: {e}")
+            return False

@@ -2,6 +2,19 @@ import streamlit as st
 import pandas as pd
 from modules.workers.services import WorkerService
 from core.config import UserRole, ROLE_LABELS
+from zoneinfo import ZoneInfo
+
+# --- HELPER FUNCTIONS ---
+def get_kyiv_time(dt_str):
+    if not dt_str:
+        return ""
+    try:
+        dt = pd.to_datetime(dt_str)
+        if dt.tz is None:
+            dt = dt.tz_localize("UTC")
+        return dt.tz_convert(ZoneInfo("Europe/Kyiv")).strftime("%d.%m.%Y %H:%M")
+    except:
+        return str(dt_str)
 
 def render():
     st.header("👥 Керування працівниками")
@@ -31,16 +44,28 @@ def render():
             df_workers = pd.DataFrame(workers)
             
             # Ensure columns exist
-            for col in ['position', 'competence', 'operation_types']:
+            for col in ['position', 'competence', 'operation_types', 'comment', 'created_by_name']:
                 if col not in df_workers.columns:
                     df_workers[col] = None
 
-            # Add Placeholder "Success Rate" for future
-            if 'success_rate' not in df_workers.columns:
-                df_workers['success_rate'] = 0.0 # 0.0 to 1.0
+            # Add "No." column
+            df_workers.insert(0, "No.", range(1, len(df_workers) + 1))
+            
+            # Add "Delete?" column for UI actions (default False)
+            df_workers.insert(0, "Delete?", False)
+            
+            # Format User/Date Columns
+            for col in ['created_at', 'updated_at']:
+                if col in df_workers.columns:
+                    df_workers[col] = df_workers[col].apply(get_kyiv_time)
+            
+            # Formatting "Created By"
+            if 'created_by_name' in df_workers.columns:
+                df_workers['Створено'] = df_workers['created_by_name'].fillna("-") + "\n" + df_workers['created_at'].fillna("")
 
             st.write("### 📝 Швидке редагування")
-            st.caption("Редагуйте Посаду та Компетенцію в таблиці. Для зміни Типів операцій використовуйте детальну форму нижче.")
+            st.caption("Редагуйте Посаду, Компетенцію та Коментарі в таблиці. Для зміни Типів операцій використовуйте детальну форму нижче.")
+            st.caption("⚠️ Щоб видалити працівників, поставте галочку в колонці 'Видалити?' і натисніть кнопку 'Видалити обраних' внизу.")
 
             edited_df = st.data_editor(
                 df_workers,
@@ -48,50 +73,68 @@ def render():
                 column_config={
                      "id": None,
                      "email": None, # Hide Email
+                     "Delete?": st.column_config.CheckboxColumn("Видалити?", width="small", help="Оберіть для видалення"),
+                     "No.": st.column_config.NumberColumn("№", width="small", disabled=True),
                      "full_name": "ПІБ",
                      "role": st.column_config.SelectboxColumn("Роль", options=[UserRole.ADMIN, UserRole.MANAGER, UserRole.WORKER, UserRole.VIEWER]),
                      "position": "Посада",
                      "competence": "Компетенція",
+                     "comment": st.column_config.TextColumn("Коментар", width="medium"),
                      "operation_types": st.column_config.ListColumn("Типи операцій (Дільниці)"),
-                     "success_rate": st.column_config.ProgressColumn(
-                        "Успішність", 
-                        help="Показник успішності виконання завдань (на майбутнє)", 
-                        format="%.0f%%", 
-                        min_value=0, 
-                        max_value=1
-                     ),
-                     "created_at": None
+                     "Створено": st.column_config.TextColumn("Додав", disabled=True, width="medium"),
+                     "created_at": None, "updated_at": None, "created_by": None, "updated_by": None, "created_by_name": None, "updated_by_name": None
                 },
                 hide_index=True,
-                use_container_width=True
+                use_container_width=True,
+                height=500
             )
             
-            # Save Button for Table Edits
-            if st.button("💾 Зберегти зміни таблиці"):
-                changes_count = 0
-                for index, row in edited_df.iterrows():
-                    # Check against original (naive check or just update all)
-                    # We'll just update fields that are editable in table: role, position, competence, full_name
-                    # Note: operations_types are complex to edit in table directly if we want strict validation.
+            c1, c2 = st.columns([1, 4])
+            
+            with c1:
+                 # Delete Button
+                if st.button("🗑️ Видалити обраних", type="primary"):
+                    to_delete = edited_df[edited_df['Delete?'] == True]
+                    if not to_delete.empty:
+                        rows_deleted = 0
+                        for index, row in to_delete.iterrows():
+                            if service.delete_worker(row['id']):
+                                rows_deleted += 1
+                        
+                        if rows_deleted > 0:
+                            st.success(f"Видалено {rows_deleted} працівників.")
+                            st.rerun()
+                    else:
+                        st.info("Не обрано жодного працівника для видалення.")
+
+            with c2:
+                # Save Button for Table Edits
+                if st.button("💾 Зберегти зміни таблиці"):
+                    current_user_id = st.session_state.user.id if st.session_state.get("user") else None
+                    changes_count = 0
+                    for index, row in edited_df.iterrows():
+                        # Check against original (naive check or just update all)
+                        # We'll just update fields that are editable in table
+                        
+                        uid = row['id']
+                        update_data = {
+                            "full_name": row['full_name'],
+                            "role": row['role'],
+                            "position": row['position'],
+                            "competence": row['competence'],
+                            "comment": row['comment']
+                        }
+                        service.update_worker_profile(uid, update_data, current_user_id)
+                        changes_count += 1
                     
-                    uid = row['id']
-                    update_data = {
-                        "full_name": row['full_name'],
-                        "role": row['role'],
-                        "position": row['position'],
-                        "competence": row['competence']
-                    }
-                    service.update_worker_profile(uid, update_data)
-                    changes_count += 1
-                
-                st.success("Дані оновлено!")
-                st.rerun()
+                    st.success("Дані оновлено!")
+                    st.rerun()
 
             st.divider()
             st.subheader("🛠️ Детальне налаштування (Типи операцій)")
             
             # Select Worker to Edit
-            worker_options = {w['id']: f"{w.get('full_name')} ({w.get('email')})" for w in workers}
+            worker_options = {w['id']: f"{w.get('full_name')}" for w in workers}
             selected_w_id = st.selectbox("Оберіть працівника для налаштування", list(worker_options.keys()), format_func=lambda x: worker_options[x])
             
             if selected_w_id:
@@ -111,14 +154,15 @@ def render():
                         )
                         
                         if st.form_submit_button("Зберегти типи операцій"):
-                            service.update_worker_profile(selected_w_id, {"operation_types": selected_ops})
+                            current_user_id = st.session_state.user.id if st.session_state.get("user") else None
+                            service.update_worker_profile(selected_w_id, {"operation_types": selected_ops}, current_user_id)
                             st.success("Типи операцій оновлено!")
                             st.rerun()
 
     # --- TAB 2: IMPORT ---
     with tab_import:
         st.markdown("### Імпорт/Оновлення працівників")
-        st.info("ℹ️ Імпорт оновлює дані існуючих користувачів за **Email**. Нові користувачі не створюються автоматично (вони повинні зареєструватися).")
+        st.info("ℹ️ Імпорт оновлює дані існуючих користувачів за **ПІБ (Full Name)**. Нові користувачі не створюються автоматично.")
         
         uploaded_file = st.file_uploader("Завантажте файл", type=["xlsx", "xls"])
         
@@ -135,10 +179,10 @@ def render():
                 st.write("#### Співставлення стовпців")
                 
                 db_fields_single = {
-                    "email": "Email (для пошуку)",
-                    "full_name": "ПІБ",
+                    "full_name": "ПІБ (Обов'язково)",
                     "position": "Посада",
-                    "competence": "Компетенція"
+                    "competence": "Компетенція",
+                    "comment": "Коментар"
                 }
                 
                 excel_headers = ["(Пропустити)"] + list(df_raw.columns)
@@ -161,11 +205,13 @@ def render():
                 
                 if st.button("🚀 Імпортувати"):
                     with st.spinner("Обробка..."):
-                        s, e = service.import_workers(df_raw, mapping)
+                        current_user_id = st.session_state.user.id if st.session_state.get("user") else None
+                        s, e = service.import_workers(df_raw, mapping, user_id=current_user_id)
                     if s > 0:
                         st.success(f"Оновлено {s} записів.")
                     if e > 0:
                         st.warning(f"Не знайдено/помилок: {e}")
+                        st.caption("Помилки можуть виникати, якщо ПІБ з файлу не знайдено в базі даних (ми не створюємо нових користувачів без авторизації).")
                         
             except Exception as e:
                 st.error(f"Error: {e}")
@@ -176,7 +222,7 @@ def render():
         if st.button("📥 Завантажити Excel"):
             df_ex = pd.DataFrame(workers)
             # Clean up columns for export
-            cols_to_export = ['id', 'email', 'full_name', 'role', 'position', 'competence', 'operation_types', 'created_at']
+            cols_to_export = ['id', 'email', 'full_name', 'role', 'position', 'competence', 'comment', 'operation_types', 'created_at']
             # Filter existing columns
             cols_to_export = [c for c in cols_to_export if c in df_ex.columns]
             
