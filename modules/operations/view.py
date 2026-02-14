@@ -12,17 +12,110 @@ def render():
     tab_list, tab_new, tab_import, tab_export = st.tabs(["📋 Список і Редагування", "➕ Нова операція", "📥 Імпорт (Excel)", "📤 Експорт"])
     
     # --- TAB 1: LIST & EDIT ---
+    # --- TAB 1: LIST & EDIT ---
     with tab_list:
+        # 1. Controls Row
+        c_search, c_sort, c_limit = st.columns([2, 1, 1])
+        
+        search_query = c_search.text_input("🔍 Пошук", placeholder="Введіть артикул, ключ або назву...", label_visibility="collapsed")
+        
+        sort_options = {
+            "created_at_desc": "📅 Створено (найновіші)",
+            "created_at_asc": "📅 Створено (найстаріші)",
+            "updated_at_desc": "📝 Оновлено (найновіші)",
+            "article_asc": "🔤 Артикул (А-Я)",
+            "article_desc": "🔤 Артикул (Я-А)",
+            "section_asc": "🏭 Дільниця (А-Я)",
+            "norm_desc": "⏱️ Норма часу (найбільша)"
+        }
+        sort_by = c_sort.selectbox("Сортування", options=list(sort_options.keys()), format_func=lambda x: sort_options[x], label_visibility="collapsed")
+        
+        page_size = c_limit.selectbox("Рядків на сторінці", options=[20, 50, 100, 200, 500], index=0, label_visibility="collapsed")
+
+        # 2. Fetch Data
         df = service.get_operations()
+        
         if not df.empty:
-            st.info("💡 Ви можете редагувати дані прямо в таблиці. Натисніть Enter або клікніть за межами клітинки для збереження змін.")
+            # 3. Process Data (Search & Sort) using Pandas
+            # Filter
+            if search_query:
+                query = search_query.lower()
+                mask = (
+                    df['operation_key'].astype(str).str.lower().str.contains(query) |
+                    df['article'].astype(str).str.lower().str.contains(query) |
+                    df['operation_number'].astype(str).str.lower().str.contains(query) |
+                    df['section'].astype(str).str.lower().str.contains(query)
+                )
+                df = df[mask]
+
+            # Sort
+            if sort_by == 'created_at_desc':
+                df = df.sort_values(by='created_at', ascending=False)
+            elif sort_by == 'created_at_asc':
+                df = df.sort_values(by='created_at', ascending=True)
+            elif sort_by == 'updated_at_desc':
+                df = df.sort_values(by='updated_at', ascending=False)
+            elif sort_by == 'article_asc':
+                df = df.sort_values(by='article', ascending=True)
+            elif sort_by == 'article_desc':
+                df = df.sort_values(by='article', ascending=False)
+            elif sort_by == 'section_asc':
+                df = df.sort_values(by='section', ascending=True)
+            elif sort_by == 'norm_desc':
+                df = df.sort_values(by='norm_time', ascending=False)
+                
+            # 4. Add "No." Column (Sequential 1..N)
+            df.insert(0, 'No.', range(1, len(df) + 1))
             
-            # Use data_editor
+            # 5. Format User Columns
+            # Helper to format user
+            def format_user(row, prefix):
+                email = row.get(f"{prefix}_email")
+                name = row.get(f"{prefix}_name")
+                if pd.notna(name) and pd.notna(email):
+                    return f"{name} ({email})"
+                elif pd.notna(email):
+                    return email
+                return "-"
+            
+            if 'created_by_email' in df.columns:
+                df['created_by_fmt'] = df.apply(lambda x: format_user(x, 'created_by'), axis=1)
+            
+            if 'updated_by_email' in df.columns:
+                df['updated_by_fmt'] = df.apply(lambda x: format_user(x, 'updated_by'), axis=1)
+                
+            # 6. Pagination
+            total_rows = len(df)
+            total_pages = (total_rows // page_size) + (1 if total_rows % page_size > 0 else 0)
+            
+            # Session state for current page
+            if "ops_page" not in st.session_state:
+                st.session_state.ops_page = 1
+                
+            # Validate page range (if filter changed)
+            if st.session_state.ops_page > total_pages:
+                 st.session_state.ops_page = max(1, total_pages)
+                 
+            current_page = st.session_state.ops_page
+            start_idx = (current_page - 1) * page_size
+            end_idx = start_idx + page_size
+            
+            df_page = df.iloc[start_idx:end_idx].copy()
+            
+            # 7. Display Table
+            st.info("💡 Ви можете редагувати дані прямо в таблиці. Натисніть 'Зберегти зміни' щоб зафіксувати.")
+            
+            # Determine fixed height: (rows * 35px) + header (~40px)
+            # Max height constraint
+            calc_height = (len(df_page) * 35) + 40
+            
             edited_df = st.data_editor(
-                df,
+                df_page,
                 key="ops_editor",
+                height=calc_height, 
                 column_config={
                     "id": None, # Hide ID
+                    "No.": st.column_config.NumberColumn("№", width="small", disabled=True),
                     "operation_key": "Ключ",
                     "article": "Артикул",
                     "operation_number": "№ Оп.",
@@ -30,81 +123,79 @@ def render():
                     "norm_time": st.column_config.NumberColumn("Норма (хв)", format="%.2f"),
                     "comment": "Коментар",
                     "color": "Колір",
-                    "created_at": st.column_config.DatetimeColumn("Створено", format="DD.MM.YYYY HH:mm", disabled=True)
+                    # Metadata (Disabled)
+                    "created_at": st.column_config.DatetimeColumn("Створено", format="YYYY-MM-DD HH:mm:ss", disabled=True),
+                    "updated_at": st.column_config.DatetimeColumn("Оновлено", format="YYYY-MM-DD HH:mm:ss", disabled=True),
+                    "created_by_fmt": st.column_config.TextColumn("Створив", disabled=True),
+                    "updated_by_fmt": st.column_config.TextColumn("Оновив", disabled=True),
+                    
+                    # Hide raw columns
+                    "created_by": None, "updated_by": None,
+                    "created_by_email": None, "created_by_name": None,
+                    "updated_by_email": None, "updated_by_name": None
                 },
                 hide_index=True,
                 use_container_width=True,
-                num_rows="dynamic" # Allow adding/deleting rows if supported by backend logic logic below
+                # Force columns order
+                column_order=["No.", "operation_key", "article", "operation_number", "section", "norm_time", "color", "comment", "created_by_fmt", "created_at", "updated_by_fmt", "updated_at"]
             )
-
-            # Detect changes (This is a simplified "snapshot" approach. 
-            # Real-time sync requires comparing edited_df with df, or using on_change callback)
-            # For simplicity in this interaction model, we can add a "Save Changes" button 
-            # OR process changes immediately if identifying what changed is easy.
-            # Ideally, data_editor returns the new state. We need to find Diff.
             
-            # Simple Diff Logic for Updates:
-            if not df.equals(edited_df):
-                # We need to identify what changed.
-                # However, st.data_editor state persistence can be tricky without a button or callback.
-                # Let's try to capture changes via session state if needed, 
-                # but standard practice: Button to commit bulk edits OR iterative updates.
-                
-                # Iterating rows to find changes:
-                # This is heavy if DF is large.
-                # Constraint: We only want to save specific changes.
-                
-                if st.button("💾 Зберегти зміни в таблиці"):
-                    with st.spinner("Збереження..."):
-                        # Identify revised rows
-                        # Assuming 'id' is prevalent.
-                        
-                        # 1. Updates
-                        for index, row in edited_df.iterrows():
-                            # Find original row by ID
-                            # This is O(N^2) effectively if not optimized, but OK for small catalogs.
-                            # Better: compare based on ID index.
-                             
-                            # If new row (no ID or ID is NaN if added via dynamic), Handle Create
-                            # Note: Supabase/Pandas handling of new rows in data_editor usually results in empty IDs.
-                            
-                            op_id = row.get("id")
-                            
-                            # Clean data for DB
-                            row_data = {
-                                "operation_key": row["operation_key"],
-                                "article": row["article"],
-                                "operation_number": row["operation_number"],
-                                "section": row["section"],
-                                "norm_time": row["norm_time"],
-                                "comment": row["comment"],
-                                "color": row["color"]
-                            }
-                            
-                            if pd.isna(op_id):
-                                # It's a NEW row added via UI
-                                service.create_operation(row_data)
-                            else:
-                                # It's an UPDATE. Check if changed? 
-                                # For simplicity, just update all (or filter).
-                                # To avoid spamming DB, we should compare.
-                                pass
-                                # We'll rely on "New Operation" tab for adding mainly, 
-                                # and use this mainly for edits.
-                                # But let's support updates.
-                                service.update_operation(op_id, row_data)
-                                
-                        # 2. Deletes
-                        # st.data_editor allows deleting rows. We need to find IDs that are in DB but not in edited_df.
-                        original_ids = df["id"].tolist()
-                        current_ids = [x for x in edited_df["id"].tolist() if pd.notna(x)]
-                        
-                        ids_to_delete = set(original_ids) - set(current_ids)
-                        for d_id in ids_to_delete:
-                            service.delete_operation(d_id)
-                            
-                        st.success("Зміни збережено!")
+            # 8. Pagination Controls
+            c_prev, c_info, c_next = st.columns([1, 2, 1])
+            
+            with c_prev:
+                if current_page > 1:
+                    if st.button("⬅️ Попередня"):
+                        st.session_state.ops_page -= 1
                         st.rerun()
+                        
+            with c_info:
+                st.markdown(f"<div style='text-align: center'>Сторінка <b>{current_page}</b> з <b>{total_pages}</b> (Всього: {total_rows})</div>", unsafe_allow_html=True)
+                
+            with c_next:
+                if current_page < total_pages:
+                    if st.button("Наступна ➡️"):
+                        st.session_state.ops_page += 1
+                        st.rerun()
+
+            # 9. Save Changes Logic
+            # Compare edited_df with df_page (using IDs)
+            # Simplified: Button to save all
+            
+            if st.button("💾 Зберегти зміни в таблиці", type="primary"):
+                with st.spinner("Збереження..."):
+                    updated_count = 0
+                    current_user_id = st.session_state.user.id if st.session_state.get("user") else None
+                    
+                    for index, row in edited_df.iterrows():
+                        op_id = row.get("id")
+                        
+                        # Prepare data
+                        row_data = {
+                            "operation_key": row["operation_key"],
+                            "article": row["article"],
+                            "operation_number": row["operation_number"],
+                            "section": row["section"],
+                            "norm_time": row["norm_time"],
+                            "comment": row["comment"],
+                            "color": row["color"]
+                        }
+                        
+                        if pd.isna(op_id):
+                            continue # Ignore new rows here? or Create? 
+                            # Data_editor dynamic rows usually have None ID.
+                            # But wait, original DF has IDs.
+                            # If row was added via "dynamic" num_rows, it has no ID.
+                            # service.create_operation(row_data, user_id=current_user_id)
+                        else:
+                            # It's an update
+                            # Check change? For now, we update if ID exists.
+                            # Optimization: only update if changed.
+                            service.update_operation(op_id, row_data, user_id=current_user_id)
+                            updated_count += 1
+                            
+                    st.success(f"Оновлено {updated_count} записів!")
+                    st.rerun()
 
         else:
             st.info("Довідник порожній. Додайте операції через імпорт або вкладку 'Нова операція'.")
@@ -140,7 +231,8 @@ def render():
                         "comment": comment,
                         "color": color
                     }
-                    success, msg = service.create_operation(data)
+                    current_user_id = st.session_state.user.id if st.session_state.get("user") else None
+                    success, msg = service.create_operation(data, user_id=current_user_id)
                     if success:
                         st.success("Операцію додано!")
                         st.rerun()
@@ -260,7 +352,8 @@ def render():
                                     else:
                                         df_to_import = df_raw
                                         
-                                    s_count, e_count = service.import_operations(df_to_import, mapping)
+                                    current_user_id = st.session_state.user.id if st.session_state.get("user") else None
+                                    s_count, e_count = service.import_operations(df_to_import, mapping, user_id=current_user_id)
                                 
                                 if e_count == 0:
                                     st.success(f"✅ Успішно імпортовано {s_count} рядків!")
