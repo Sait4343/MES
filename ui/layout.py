@@ -30,6 +30,7 @@ def render_sidebar():
     # Restricted Pages
     if user_role in [UserRole.ADMIN, UserRole.MANAGER]:
          menu_options["workers"] = "👥 Працівники"
+         menu_options["operations"] = "🧵 Операції"  # Added Operations
          menu_options["analytics"] = "📈 Аналітика"
 
     # Worker/Viewer see base menu + above conditions
