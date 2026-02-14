@@ -8,12 +8,37 @@ class SectionsService:
         self.TABLE = "sections"
 
     def get_all_sections(self):
-        """Fetch all sections."""
+        """Fetch all sections with user details."""
         try:
-            res = self.db.client.table(self.TABLE).select("*").order("name").execute()
-            return pd.DataFrame(res.data)
+            # Join with profiles
+            query = self.db.client.table(self.TABLE).select(
+                "*, created_by_user:created_by(email, full_name), updated_by_user:updated_by(email, full_name)"
+            ).order("name")
+            
+            res = query.execute()
+            df = pd.DataFrame(res.data)
+            
+            if not df.empty:
+                # Flatten creator/updater
+                for col in ['created_by_user', 'updated_by_user']:
+                    if col in df.columns:
+                        df[col.replace('_user', '_name')] = df[col].apply(
+                            lambda x: x.get('full_name') or x.get('email') if isinstance(x, dict) else None
+                        )
+                        # Drop original dict column to keep it clean
+                        df.drop(columns=[col], inplace=True)
+            return df
         except Exception as e:
             st.error(f"Error fetching sections: {e}")
+            return pd.DataFrame()
+
+    def get_operations_by_section(self, section_name):
+        """Fetch operations for a specific section."""
+        try:
+            res = self.db.client.table("operations_catalog").select("*").eq("section", section_name).order("operation_number").execute()
+            return pd.DataFrame(res.data)
+        except Exception as e:
+            # st.error(f"Error fetching section operations: {e}")
             return pd.DataFrame()
 
     def get_operation_types_source(self):
@@ -28,15 +53,23 @@ class SectionsService:
             # st.error(f"Error fetching source op types: {e}")
             return []
 
-    def create_section(self, data):
+    def create_section(self, data, user_id=None):
         try:
+            if user_id:
+                data['created_by'] = user_id
+                data['updated_by'] = user_id
+                
             self.db.client.table(self.TABLE).insert(data).execute()
             return True, None
         except Exception as e:
             return False, str(e)
 
-    def update_section(self, section_id, data):
+    def update_section(self, section_id, data, user_id=None):
         try:
+            if user_id:
+                data['updated_by'] = user_id
+                data['updated_at'] = "now()"
+                
             self.db.client.table(self.TABLE).update(data).eq("id", section_id).execute()
             return True, None
         except Exception as e:
@@ -50,7 +83,7 @@ class SectionsService:
             st.error(f"Error deleting section: {e}")
             return False
 
-    def import_sections(self, df, column_mapping):
+    def import_sections(self, df, column_mapping, user_id=None):
         """
         Import sections from Excel.
         """
@@ -75,6 +108,10 @@ class SectionsService:
                 if 'description' in row: clean_row['description'] = str(row['description'])
                 if 'operation_types' in row and isinstance(row['operation_types'], str):
                      clean_row['operation_types'] = [x.strip() for x in row['operation_types'].split(',')]
+                
+                if user_id:
+                    clean_row['created_by'] = user_id
+                    clean_row['updated_by'] = user_id
                 
                 if clean_row.get('name'):
                     # Insert (or Upsert if we had ID, but we likely don't)
