@@ -59,8 +59,9 @@ def render_list_view(service, impex):
                         "Оновлено",
                         format="YYYY-MM-DD HH:mm"
                     ),
+                    "contractor": "Контрагент",
                 },
-                column_order=["order_number", "product_name", "quantity", "created_at", "shipping_date", "start_date", "preparation_date"],
+                column_order=["order_number", "product_name", "quantity", "contractor", "created_at", "shipping_date", "start_date", "preparation_date"],
                 use_container_width=True,
                 hide_index=True
             )
