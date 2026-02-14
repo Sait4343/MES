@@ -121,7 +121,7 @@ class ImpexService:
                 success_count += 1
                 
             except Exception as e:
-                # st.error(f"Row Error: {e}")
+                st.error(f"Row Error: {e}")
                 fail_count += 1
                 
         return success_count, fail_count

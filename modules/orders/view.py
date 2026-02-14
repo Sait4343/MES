@@ -48,8 +48,19 @@ def render_list_view(service, impex):
                     "order_number": "№",
                     "product_name": "Виріб",
                     "quantity": "К-ть",
-                    "shipping_date": "Відвантаження"
+                    "created_at": st.column_config.DatetimeColumn(
+                        "Створено",
+                        format="YYYY-MM-DD HH:mm"
+                    ),
+                    "shipping_date": st.column_config.DateColumn("Відвантаження", format="YYYY-MM-DD"),
+                    "start_date": st.column_config.DateColumn("Початок", format="YYYY-MM-DD"),
+                    "preparation_date": st.column_config.DateColumn("Підготовка", format="YYYY-MM-DD"),
+                    "updated_at": st.column_config.DatetimeColumn(
+                        "Оновлено",
+                        format="YYYY-MM-DD HH:mm"
+                    ),
                 },
+                column_order=["order_number", "product_name", "quantity", "created_at", "shipping_date", "start_date", "preparation_date"],
                 use_container_width=True,
                 hide_index=True
             )

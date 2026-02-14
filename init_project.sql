@@ -14,11 +14,11 @@ exception
     when duplicate_object then null;
 end $$;
 
-do $$ begin
-    create type step_status as enum ('not_started', 'in_progress', 'done', 'problem');
-exception
-    when duplicate_object then null;
-end $$;
+-- 17. do $$ begin
+--     create type step_status as enum ('not_started', 'in_progress', 'done', 'problem');
+-- exception
+--     when duplicate_object then null;
+-- end $$;
 
 -- 3. Profiles
 create table if not exists public.profiles (
@@ -48,6 +48,7 @@ create table if not exists public.orders (
   quantity integer not null default 1,
   contractor text,
   start_date date,
+  preparation_date date,
   shipping_date date,
   comment text,
   created_at timestamptz default now(),
@@ -58,7 +59,7 @@ alter table public.orders enable row level security;
 
 -- Orders Policies
 drop policy if exists "Orders viewable by everyone" on orders; 
-drop policy if exists "Orders viewable by everyone (Read)" on orders; -- Clean up new name too
+drop policy if exists "Orders viewable by everyone (Read)" on orders; 
 create policy "Orders viewable by everyone (Read)" on orders for select using (true);
 
 drop policy if exists "Orders manageable by Admin/Manager" on orders;
@@ -70,7 +71,7 @@ create policy "Orders manageable by Admin/Manager (Write)" on orders for all
 create table if not exists public.production_steps (
   id uuid default uuid_generate_v4() primary key,
   order_id uuid references public.orders(id) on delete cascade not null,
-  step_name text not null,
+  step_name text not null, -- Changed from custom enum to text
   status step_status default 'not_started',
   assigned_worker_id uuid references public.profiles(id),
   started_at timestamptz,
@@ -166,7 +167,7 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- Auto-Create Steps for New Orders
+-- Auto-Create Steps for New Orders (TEXT version)
 create or replace function create_default_steps()
 returns trigger as $$
 declare
