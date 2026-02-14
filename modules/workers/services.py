@@ -8,10 +8,10 @@ class WorkerService:
     def get_all_workers(self):
         """Fetch all user profiles with creator details."""
         try:
-            # Join with profiles self-reference
-            # Fetch normal fields + created_by user name + updated_by user name
+            # Join with profiles self-reference using EXPLICIT constraint names
+            # profiles!fk_name syntax avoids ambiguity and "relationship not found" errors
             query = self.db.client.table("profiles").select(
-                "*, created_by_user:created_by(email, full_name), updated_by_user:updated_by(email, full_name)"
+                "*, created_by_user:profiles!profiles_created_by_fkey(email, full_name), updated_by_user:profiles!profiles_updated_by_fkey(email, full_name)"
             ).order("full_name")
             
             res = query.execute()
@@ -126,28 +126,23 @@ class WorkerService:
                     
                     if user_id:
                         update_data['updated_by'] = user_id
-                        # If created_by is null, claim it? (Optional, maybe logic is complex)
                     
-                    # Handle Multi-Column Operation Types
+                    # Handle Multi-Column Operation Types (Shared Logic)
                     ops_list = []
-                    
-                    # 1. From single mapped column (backwards compatibility or mixed use)
+                    # 1. From single mapped column
                     if 'operation_types' in row and isinstance(row['operation_types'], str):
                          ops_list.extend([x.strip() for x in row['operation_types'].split(',')])
-                    
                     # 2. From multi-mapped columns
                     if 'operation_types' in multi_col_mappings:
                         cols = multi_col_mappings['operation_types']
                         for col in cols:
                             val = original_row.get(col)
                             if pd.notna(val):
-                                # If value is string, split by comma, else just add
                                 str_val = str(val).strip()
                                 if str_val:
                                     ops_list.extend([x.strip() for x in str_val.split(',')])
                     
                     if ops_list:
-                        # Dedup and clean
                         update_data['operation_types'] = sorted(list(set(ops_list)))
                     
                     if update_data:
@@ -156,9 +151,43 @@ class WorkerService:
                 except Exception:
                     errors += 1
             else:
-                # Name not found - Cannot create auth user easily here without email/password
-                # Log error or skip
-                errors += 1
+                # Create NEW Worker (Offline Profile)
+                try:
+                    new_worker = {
+                        "full_name": name,
+                        "role": "worker" # Default role
+                    }
+                    if 'position' in row: new_worker['position'] = row['position']
+                    if 'competence' in row: new_worker['competence'] = str(row['competence'])
+                    if 'comment' in row: new_worker['comment'] = str(row['comment'])
+                    
+                    if user_id:
+                        new_worker['created_by'] = user_id
+                        new_worker['updated_by'] = user_id
+
+                    # Handle Multi-Column Operation Types (Copy-Paste Logic for now, could be refactored)
+                    ops_list = []
+                    if 'operation_types' in row and isinstance(row['operation_types'], str):
+                         ops_list.extend([x.strip() for x in row['operation_types'].split(',')])
+                    if 'operation_types' in multi_col_mappings:
+                        cols = multi_col_mappings['operation_types']
+                        for col in cols:
+                            val = original_row.get(col)
+                            if pd.notna(val):
+                                str_val = str(val).strip()
+                                if str_val:
+                                    ops_list.extend([x.strip() for x in str_val.split(',')])
+                    
+                    if ops_list:
+                        new_worker['operation_types'] = sorted(list(set(ops_list)))
+
+                    # Insert
+                    self.db.client.table("profiles").insert(new_worker).execute()
+                    success += 1
+                    
+                except Exception as e:
+                    # st.error(f"Create error: {e}")
+                    errors += 1
                 
         return success, errors
 
