@@ -221,7 +221,15 @@ def render_new_order_form(service):
         with c2:
             quantity = st.number_input("Кількість*", min_value=1, value=1)
             contractor = st.text_input("Контрагент")
-            shipping_date = st.date_input("Дата відвантаження")
+            
+            # Dates
+            c_d1, c_d2, c_d3 = st.columns(3)
+            with c_d1:
+                start_date = st.date_input("Дата початку", value=None)
+            with c_d2:
+                preparation_date = st.date_input("Дата підготовки (крою)", value=None)
+            with c_d3:
+                shipping_date = st.date_input("Дата відвантаження", value=None)
         
         comment = st.text_area("Коментар")
         
@@ -235,9 +243,13 @@ def render_new_order_form(service):
                     "article": article,
                     "quantity": quantity,
                     "contractor": contractor,
-                    "shipping_date": shipping_date.isoformat(),
                     "comment": comment
                 }
+                
+                # Handle dates (isoformat if selected, else None)
+                if start_date: data["start_date"] = start_date.isoformat()
+                if preparation_date: data["preparation_date"] = preparation_date.isoformat()
+                if shipping_date: data["shipping_date"] = shipping_date.isoformat()
                 res = service.create_order(data)
                 if res:
                     st.success("Замовлення створено!")
