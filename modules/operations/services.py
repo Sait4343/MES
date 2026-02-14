@@ -55,8 +55,14 @@ class OperationsService:
         df_mapped = df[list(rename_map.keys())].rename(columns=rename_map)
         
         # 2. Add defaults/clean types
+        # 2. Add defaults/clean types
+        # Clean norm_time specifically to ensure it's a number
         if 'norm_time' in df_mapped.columns:
-            df_mapped['norm_time'] = pd.to_numeric(df_mapped['norm_time'], errors='coerce').fillna(0)
+            df_mapped['norm_time'] = pd.to_numeric(df_mapped['norm_time'], errors='coerce').fillna(0.0)
+
+        # Replace all other NaNs (e.g. empty strings in Excel) with None for valid JSON serialization
+        # (Pandas NaN -> JSON 'NaN' (invalid) vs None -> JSON null (valid))
+        df_mapped = df_mapped.where(pd.notnull(df_mapped), None)
             
         data = df_mapped.to_dict(orient='records')
         
