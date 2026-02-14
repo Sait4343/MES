@@ -16,6 +16,22 @@ class OperationsService:
             st.error(f"Error fetching operations: {e}")
             return pd.DataFrame()
 
+    def create_operation(self, data):
+        """Create a single operation."""
+        try:
+            self.db.client.table(self.TABLE).insert(data).execute()
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    def update_operation(self, op_id, data):
+        """Update an operation by ID."""
+        try:
+            self.db.client.table(self.TABLE).update(data).eq("id", op_id).execute()
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
     def delete_operation(self, op_id):
         """Delete an operation by ID."""
         try:
