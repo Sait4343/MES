@@ -40,6 +40,10 @@ def render():
                     c1.write(f"**Email:** {w.get('email')}")
                     c1.write(f"**ID:** `{w.get('id')}`")
                     
+                    # Edit Full Name
+                    new_name = c1.text_input("Повне ім'я", value=w.get('full_name', ''), key=f"name_{w['id']}")
+                    
+                    # Edit Role
                     current_role = w.get('role', 'worker')
                     new_role = c2.selectbox(
                         "Роль", 
@@ -49,8 +53,24 @@ def render():
                         format_func=lambda x: ROLE_LABELS.get(x, x)
                     )
                     
-                    if new_role != current_role:
-                        if c2.button("Зберегти", key=f"btn_role_{w['id']}"):
-                            worker_service.update_worker_role(w['id'], new_role)
-                            st.success(f"Роль змінено на {new_role}")
+                    if c2.button("Зберегти зміни", key=f"btn_save_{w['id']}"):
+                        updates = {}
+                        if new_role != current_role:
+                            updates["role"] = new_role
+                        if new_name != w.get('full_name'):
+                            updates["full_name"] = new_name
+                            
+                        if updates:
+                            # We can use update_worker_profile for name and update_worker_role for role, 
+                            # or just update_worker_profile if it handles role too?
+                            # service.update_worker_profile handles generic data.
+                            # But role might need special handling if we separated it?
+                            # In step 433, update_worker_profile is generic table update.
+                            # update_worker_role is also generic table update.
+                            # So update_worker_profile works for both.
+                            
+                            worker_service.update_worker_profile(w['id'], updates)
+                            st.success(f"Дані оновлено!")
                             st.rerun()
+                        else:
+                            st.info("Змін не виявлено.")

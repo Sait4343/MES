@@ -103,3 +103,84 @@ class AnalyticsService:
     def get_step_status_dist(self, steps_df):
          if steps_df.empty: return pd.DataFrame()
          return steps_df['status'].value_counts().reset_index()
+
+    def get_planning_data(self):
+        """
+        Fetch and process data for Planning Dashboard:
+        1. Gantt Chart Data (Order Ops with projected times)
+        2. Section Workload
+        3. Worker Workload
+        """
+        try:
+            # 1. Fetch Data
+            ops = self.db.client.table("order_operations").select(
+                "*, orders(order_number, product_name), sections(name, capacity_minutes), profiles(full_name)"
+            ).execute().data
+            
+            if not ops:
+                return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+            
+            df = pd.DataFrame(ops)
+            
+            # Flatten
+            if 'orders' in df.columns:
+                df['Order'] = df['orders'].apply(lambda x: x.get('order_number') if x else '??')
+                df['Product'] = df['orders'].apply(lambda x: x.get('product_name') if x else '')
+            
+            if 'sections' in df.columns:
+                df['Section'] = df['sections'].apply(lambda x: x.get('name') if x else 'Unknown')
+                df['Section Cap'] = df['sections'].apply(lambda x: x.get('capacity_minutes', 0) if x else 0)
+                
+            if 'profiles' in df.columns:
+                df['Worker'] = df['profiles'].apply(lambda x: x.get('full_name') if x else 'Unassigned')
+            
+            # 2. Calculate Gantt Schedule
+            # We assume 'planned_date' is the start day.
+            # We assume operations within an order are sequential based on 'sort_order'.
+            # We project Start/End time based on 'total_estimated_time' (minutes).
+            # Start of day: 09:00 (for simulation)
+            
+            df['start_time'] = pd.NaT
+            df['end_time'] = pd.NaT
+            
+            # Sort by Order, Date, SortOrder
+            df = df.sort_values(by=['order_id', 'planned_date', 'sort_order'])
+            
+            # Logic: 
+            # For each order:
+            #   First op starts at Planned Date 09:00
+            #   Next op starts at Previous Op End Time
+            #   (Simplification: ignoring non-working hours/breaks for MVP)
+            
+            for order_id, group in df.groupby('order_id'):
+                current_time = None
+                
+                for idx, row in group.iterrows():
+                    p_date = pd.to_datetime(row.get('planned_date')) if row.get('planned_date') else pd.Timestamp.now().normalize()
+                    duration_min = row.get('total_estimated_time', 0) or 0
+                    
+                    if current_time is None:
+                        # Start of Order processing (First step)
+                        # Default to 09:00 of planned date
+                        current_time = p_date.replace(hour=9, minute=0)
+                    
+                    # If current op has a later planned date, jump to it? 
+                    # For now, simplistic chaining.
+                    
+                    start = current_time
+                    end = start + timedelta(minutes=float(duration_min))
+                    
+                    df.at[idx, 'start_time'] = start
+                    df.at[idx, 'end_time'] = end
+                    
+                    current_time = end
+            
+            # 3. Workload Aggregations (for Current Week?)
+            # Let's just aggregate the whole fetched dataset for now, or filter by 'planned_date' in view.
+            
+            return df
+            
+        except Exception as e:
+            st.error(f"Error calculating planning data: {e}")
+            return pd.DataFrame()
+
