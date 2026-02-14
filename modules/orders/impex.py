@@ -37,73 +37,81 @@ class ImpexService:
             "Notes": "comment"
         }
 
-    def parse_excel(self, file_content):
-        """Parse Excel file and map columns."""
+    def import_orders_from_df(self, df, column_mapping):
+        """
+        Import orders from DataFrame with dynamic column mapping.
+        """
+        # 1. Rename columns based on mapping
+        rename_map = {v: k for k, v in column_mapping.items() if v and v != '(Пропустити)'}
+        # Invert mapping: UI gives us {DB_COL: EXCEL_HEADER}. We need {EXCEL_HEADER: DB_COL} for rename.
+        # But wait, logic in other modules (Operations/Sections) was: 
+        # UI returns {DB_COL: EXCEL_HEADER}.
+        # So we renamed df columns: rename_map = {v: k for k, v in column_mapping.items() if v} -> {EXCEL_HEADER: DB_COL}
+        
+        # Check if column_mapping keys are DB columns or Header names?
+        # Usually View passes: key=db_field, value=excel_header.
+        
+        rename_map = {v: k for k, v in column_mapping.items() if v and v != "(Пропустити)"}
+        
+        # Select only mapped columns
         try:
-            df = pd.read_excel(file_content)
+            df_mapped = df[list(rename_map.keys())].rename(columns=rename_map)
+        except KeyError as e:
+            return 0, f"Missing columns in Excel: {e}"
             
-            # Normalize headers
-            df.columns = [str(c).strip() for c in df.columns]
-            
-            # Map columns
-            valid_data = []
-            errors = []
-            
-            for index, row in df.iterrows():
-                mapped_row = {}
-                row_errors = []
-                
-                for col in df.columns:
-                    db_col = self.column_mapping.get(col)
-                    if db_col:
-                        val = row[col]
-                        if pd.notna(val):
-                            mapped_row[db_col] = val
-                            
-                # Validation
-                if not mapped_row.get("order_number"):
-                    row_errors.append("Missing Order Number")
-                if not mapped_row.get("product_name"):
-                    row_errors.append("Missing Product Name")
-                if not mapped_row.get("quantity"):
-                    row_errors.append("Missing Quantity")
-                else:
-                    try:
-                        mapped_row["quantity"] = int(mapped_row["quantity"])
-                    except:
-                        row_errors.append("Invalid Quantity")
-
-                if row_errors:
-                    errors.append({"row": index + 2, "errors": ", ".join(row_errors), "data": mapped_row})
-                else:
-                    valid_data.append(mapped_row)
-                    
-            return valid_data, errors, df.columns.tolist()
-            
-        except Exception as e:
-            st.error(f"Error parsing file: {e}")
-            return [], [], []
-
-    def import_orders(self, orders_data):
-        """Bulk insert orders."""
+        orders_data = df_mapped.to_dict(orient='records')
+        
         success_count = 0
         fail_count = 0
         
         for order in orders_data:
             try:
-                # Handle dates
-                if "shipping_date" in order:
-                     try:
-                         # Ensure proper format (YYYY-MM-DD), pandas might give Timestamp
-                         if isinstance(order["shipping_date"], pd.Timestamp):
-                             order["shipping_date"] = order["shipping_date"].strftime('%Y-%m-%d')
-                     except:
-                         del order["shipping_date"]
+                # Cleaning & Validation
+                clean_order = {}
+                
+                # Helper to safely get and clean
+                def get_val(key):
+                    if key in order and pd.notna(order[key]):
+                        return order[key]
+                    return None
 
-                self.db.client.table("orders").insert(order).execute()
+                # Mandatory fields
+                order_number = get_val("order_number")
+                product_name = get_val("product_name")
+                quantity = get_val("quantity")
+                
+                if not order_number or not product_name:
+                    fail_count += 1
+                    continue
+                    
+                clean_order["order_number"] = str(order_number).strip()
+                clean_order["product_name"] = str(product_name).strip()
+                
+                # Quantity
+                try:
+                    clean_order["quantity"] = int(quantity) if quantity else 1
+                except:
+                     clean_order["quantity"] = 1
+                     
+                # Optional fields
+                if get_val("article"): clean_order["article"] = str(get_val("article")).strip()
+                if get_val("contractor"): clean_order["contractor"] = str(get_val("contractor")).strip()
+                if get_val("comment"): clean_order["comment"] = str(get_val("comment")).strip()
+                
+                # Date
+                s_date = get_val("shipping_date")
+                if s_date:
+                    try:
+                        clean_order["shipping_date"] = pd.to_datetime(s_date).strftime('%Y-%m-%d')
+                    except:
+                        pass # Ignore invalid date
+
+                # Insert
+                self.db.client.table("orders").insert(clean_order).execute()
                 success_count += 1
+                
             except Exception as e:
-                # Duplicate Key Error likely
+                # st.error(f"Row Error: {e}")
                 fail_count += 1
                 
         return success_count, fail_count

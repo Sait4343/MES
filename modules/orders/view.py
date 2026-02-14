@@ -244,5 +244,67 @@ def render_new_order_form(service):
 
 def render_import_tab(impex):
      st.subheader("Масове завантаження")
-     # ... (Simplified for brevity, similar to original) ...
-     st.info("Функціонал імпорту збережено.")
+     
+     if st.session_state.role not in [UserRole.ADMIN, UserRole.MANAGER]:
+         st.info("🔒 Імпорт доступний тільки для менеджерів та адміністраторів.")
+         return
+
+     uploaded_file = st.file_uploader("Оберіть файл Excel (.xlsx)", type=['xlsx', 'xls'])
+     
+     if uploaded_file:
+        try:
+            xls = pd.ExcelFile(uploaded_file)
+            sheet = st.selectbox("Оберіть аркуш (Sheet)", xls.sheet_names)
+            
+            df_raw = pd.read_excel(uploaded_file, sheet_name=sheet)
+            
+            st.write("#### Попередній перегляд (перші 5 рядків)")
+            st.dataframe(df_raw.head())
+            
+            st.divider()
+            st.write("#### Співставлення колонок")
+            
+            # Define DB columns we want to map
+            db_fields = {
+                "order_number": "Номер замовлення (Required)",
+                "product_name": "Назва виробу (Required)",
+                "quantity": "Кількість (Required)",
+                "article": "Артикул",
+                "contractor": "Контрагент",
+                "shipping_date": "Дата відвантаження",
+                "comment": "Коментар"
+            }
+            
+            excel_headers = ["(Пропустити)"] + list(df_raw.columns)
+            cols_map = {}
+            
+            # Create mapping selectors
+            c_cols = st.columns(2)
+            for i, (db_key, db_label) in enumerate(db_fields.items()):
+                # Try to auto-match
+                default_idx = 0
+                for idx, header in enumerate(excel_headers):
+                    if header.lower() in db_label.lower(): # Simple naive match
+                         default_idx = idx
+                         break
+                
+                with c_cols[i % 2]:
+                    cols_map[db_key] = st.selectbox(f"Поле БД: {db_label}", excel_headers, index=default_idx, key=f"map_{db_key}")
+            
+            if st.button("🚀 Імпортувати замовлення"):
+                with st.spinner("Імпорт даних..."):
+                    # Call new import method
+                    s, f = impex.import_orders_from_df(df_raw, cols_map)
+                
+                if s > 0:
+                    st.success(f"✅ Успішно імпортовано: {s}")
+                if f > 0:
+                    if s == 0:
+                         st.error(f"❌ Не вдалося імпортувати: {f} (Можливо дублікати номерів або помилки даних)")
+                    else:
+                         st.warning(f"⚠️ Пропущено/Помилок: {f}")
+                         
+                st.cache_data.clear()
+                
+        except Exception as e:
+            st.error(f"Помилка читання файлу: {e}")

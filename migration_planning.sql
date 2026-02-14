@@ -28,11 +28,14 @@ create table if not exists public.order_operations (
 -- 2. RLS
 alter table public.order_operations enable row level security;
 
+drop policy if exists "Order Ops viewable by everyone" on public.order_operations;
 create policy "Order Ops viewable by everyone" on public.order_operations for select using (true);
 
+drop policy if exists "Order Ops manageable by Admin/Manager" on public.order_operations;
 create policy "Order Ops manageable by Admin/Manager" on public.order_operations for all
 using (exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'manager')));
 
+drop policy if exists "Workers can update their ops" on public.order_operations;
 create policy "Workers can update their ops" on public.order_operations for update
 using (auth.uid() = assigned_worker_id);
 
