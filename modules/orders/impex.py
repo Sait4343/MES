@@ -113,7 +113,11 @@ class ImpexService:
                             pass # Ignore invalid date
 
                 # Insert
-                self.db.client.table("orders").insert(clean_order).execute()
+                # Upsert (Insert or Update based on order_number)
+                self.db.client.table("orders").upsert(
+                    clean_order, 
+                    on_conflict="order_number"
+                ).execute()
                 success_count += 1
                 
             except Exception as e:
