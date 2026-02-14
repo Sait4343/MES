@@ -279,6 +279,8 @@ def render_import_tab(impex):
                 "quantity": "Кількість (Required)",
                 "article": "Артикул",
                 "contractor": "Контрагент",
+                "start_date": "Дата початку",
+                "preparation_date": "Дата підготовки",
                 "shipping_date": "Дата відвантаження",
                 "comment": "Коментар"
             }
@@ -289,10 +291,20 @@ def render_import_tab(impex):
             # Create mapping selectors
             c_cols = st.columns(2)
             for i, (db_key, db_label) in enumerate(db_fields.items()):
-                # Try to auto-match
+                # Try to auto-match using Impex aliases
                 default_idx = 0
+                
+                # Get possible aliases for this DB field from ImpexService
+                aliases = impex.get_field_aliases(db_key)
+                
+                # Also try matching the label itself if not in aliases
+                search_terms = aliases + [db_label]
+                
                 for idx, header in enumerate(excel_headers):
-                    if header.lower() in db_label.lower(): # Simple naive match
+                    if idx == 0: continue # Skip 'skip' option
+                    h_clean = header.lower().strip()
+                    # Check if any alias is in the header
+                    if any(alias.lower() in h_clean for alias in search_terms):
                          default_idx = idx
                          break
                 

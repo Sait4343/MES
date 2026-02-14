@@ -9,6 +9,7 @@ class ImpexService:
         self.required_columns = ["order_number", "product_name", "quantity"]
         
         # Mapping Ukrainian headers to DB columns
+        # Structure: { "Excel Header": "db_column" }
         self.column_mapping = {
             "Номер замовлення": "order_number",
             "Order #": "order_number",
@@ -32,10 +33,20 @@ class ImpexService:
             "Ship Date": "shipping_date",
             "Deadline": "shipping_date",
             
+            "Дата початку": "start_date",
+            "Start Date": "start_date",
+
+            "Дата підготовки": "preparation_date",
+            "Prep Date": "preparation_date",
+            
             "Коментар": "comment",
             "Comment": "comment",
             "Notes": "comment"
         }
+
+    def get_field_aliases(self, db_field):
+        """Return list of possible Excel headers for a given DB field."""
+        return [k for k, v in self.column_mapping.items() if v == db_field]
 
     def import_orders_from_df(self, df, column_mapping):
         """
@@ -43,14 +54,8 @@ class ImpexService:
         """
         # 1. Rename columns based on mapping
         rename_map = {v: k for k, v in column_mapping.items() if v and v != '(Пропустити)'}
-        # Invert mapping: UI gives us {DB_COL: EXCEL_HEADER}. We need {EXCEL_HEADER: DB_COL} for rename.
-        # But wait, logic in other modules (Operations/Sections) was: 
-        # UI returns {DB_COL: EXCEL_HEADER}.
-        # So we renamed df columns: rename_map = {v: k for k, v in column_mapping.items() if v} -> {EXCEL_HEADER: DB_COL}
-        
-        # Check if column_mapping keys are DB columns or Header names?
-        # Usually View passes: key=db_field, value=excel_header.
-        
+        # Invert mapping: UI maps DB_COL -> EXCEL_HEADER (v). 
+        # We need EXCEL_HEADER -> DB_COL for renaming.
         rename_map = {v: k for k, v in column_mapping.items() if v and v != "(Пропустити)"}
         
         # Select only mapped columns
@@ -98,13 +103,14 @@ class ImpexService:
                 if get_val("contractor"): clean_order["contractor"] = str(get_val("contractor")).strip()
                 if get_val("comment"): clean_order["comment"] = str(get_val("comment")).strip()
                 
-                # Date
-                s_date = get_val("shipping_date")
-                if s_date:
-                    try:
-                        clean_order["shipping_date"] = pd.to_datetime(s_date).strftime('%Y-%m-%d')
-                    except:
-                        pass # Ignore invalid date
+                # Dates
+                for date_field in ["shipping_date", "start_date", "preparation_date"]:
+                    val = get_val(date_field)
+                    if val:
+                        try:
+                            clean_order[date_field] = pd.to_datetime(val).strftime('%Y-%m-%d')
+                        except:
+                            pass # Ignore invalid date
 
                 # Insert
                 self.db.client.table("orders").insert(clean_order).execute()

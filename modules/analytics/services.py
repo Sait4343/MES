@@ -118,7 +118,7 @@ class AnalyticsService:
             ).execute().data
             
             if not ops:
-                return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+                return pd.DataFrame()
             
             df = pd.DataFrame(ops)
             
