@@ -98,6 +98,17 @@ class OrderService:
             st.error(f"Error updating operation: {e}")
             return None
 
+    def get_workers_for_section(self, section_name):
+        """Find workers who have this section in their 'operation_types'."""
+        try:
+            # 'operation_types' is text[]
+            # PostgREST filter for array contains: cs (contains)
+            # Format: {Value} for array literal
+            return self.db.client.table("profiles").select("*").cs("operation_types", f"{{{section_name}}}").execute().data
+        except Exception as e:
+            # st.error(f"Error fetching workers: {e}")
+            return []
+
     def delete_order_operation(self, op_id):
         try:
             self.db.client.table("order_operations").delete().eq("id", op_id).execute()
