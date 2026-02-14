@@ -211,21 +211,64 @@ def render():
                     
                     st.divider()
                     
-                    if st.button("🚀 Виконати імпорт"):
-                        if not mapping:
-                            st.error("Ви не співставили жодного стовпця!")
+                    st.divider()
+                    
+                    if not mapping:
+                        st.warning("⚠️ Спочатку співставте хоча б один стовпець.")
+                    else:
+                        # --- PRE-IMPORT VALIDATION ---
+                        # 1. Identify mapped columns in the dataframe
+                        mapped_excel_cols = [v for k, v in mapping.items() if v]
+                        
+                        # 2. Analyze rows
+                        # We consider a row "empty" if ALL mapped columns are empty/NaN
+                        # We consider a row "valid" if at least one mapped column has data
+                        
+                        # Create a subset for analysis
+                        df_mapped_subset = df_raw[mapped_excel_cols]
+                        
+                        # Count total
+                        total_rows = len(df_mapped_subset)
+                        
+                        # Identify empty rows (all null/nan in mapped cols)
+                        # We use .isna().all(axis=1) (or check for empty strings too if needed)
+                        # Let's treat empty strings as NaN for this check
+                        is_empty_mask = df_mapped_subset.replace(r'^\s*$', pd.NA, regex=True).isna().all(axis=1)
+                        empty_rows_count = is_empty_mask.sum()
+                        valid_rows_count = total_rows - empty_rows_count
+                        
+                        # Display Stats
+                        st.markdown("#### 📊 Аналіз даних")
+                        c_stat1, c_stat2, c_stat3 = st.columns(3)
+                        c_stat1.metric("Всього рядків", total_rows)
+                        c_stat2.metric("Пусті рядки", empty_rows_count, delta_color="inverse")
+                        c_stat3.metric("До імпорту", valid_rows_count)
+                        
+                        # Options
+                        skip_empty = st.checkbox("🚫 Не імпортувати пусті рядки", value=True)
+                        
+                        if valid_rows_count == 0:
+                            st.error("❌ Немає даних для імпорту (всі рядки пусті або не вибрані стовпці).")
                         else:
-                            with st.spinner("Імпортуємо дані..."):
-                                s_count, e_count = service.import_operations(df_raw, mapping)
-                            
-                            if e_count == 0:
-                                st.success(f"✅ Успішно імпортовано {s_count} рядків!")
-                                st.balloons()
-                            else:
-                                st.warning(f"Імпорт завершено. Успішно: {s_count}, Помилок: {e_count}")
+                            if st.button("🚀 Виконати імпорт"):
+                                with st.spinner("Імпортуємо дані..."):
+                                    # Filter DF if needed
+                                    if skip_empty:
+                                        # Keep only rows that are NOT empty
+                                        df_to_import = df_raw[~is_empty_mask]
+                                    else:
+                                        df_to_import = df_raw
+                                        
+                                    s_count, e_count = service.import_operations(df_to_import, mapping)
                                 
+                                if e_count == 0:
+                                    st.success(f"✅ Успішно імпортовано {s_count} рядків!")
+                                    st.balloons()
+                                else:
+                                    st.warning(f"Імпорт завершено. Успішно: {s_count}, Помилок: {e_count}")
+                                    
                 except Exception as e:
-                    st.error(f"Помилка читання файлу: {e}")
+                    st.error(f"Помилка читання або обробки файлу: {e}")
 
     # --- TAB 3: EXPORT ---
     with tab_export:
