@@ -12,6 +12,9 @@ def render():
     tab_list, tab_new, tab_import, tab_export = st.tabs(["📋 Список і Редагування", "➕ Нова операція", "📥 Імпорт (Excel)", "📤 Експорт"])
     
     # --- TAB 1: LIST & EDIT ---
+    # Determine User Role
+    is_admin = st.session_state.role == UserRole.ADMIN
+    
     # --- TAB 1: LIST & EDIT ---
     with tab_list:
         # 1. Controls Row
@@ -103,7 +106,10 @@ def render():
             df_page = df.iloc[start_idx:end_idx].copy()
             
             # 7. Display Table
-            st.info("💡 Ви можете редагувати дані прямо в таблиці. Натисніть 'Зберегти зміни' щоб зафіксувати.")
+            if is_admin:
+                st.info("💡 Режим Адміністратора: Ви можете редагувати таблицю. Не забудьте підтвердити та зберегти зміни.")
+            else:
+                st.warning("🔒 Режим перегляду: У вас немає прав для редагування.")
             
             # Determine fixed height: (rows * 35px) + header (~40px)
             # Max height constraint
@@ -136,6 +142,7 @@ def render():
                 },
                 hide_index=True,
                 use_container_width=True,
+                disabled=not is_admin, # CRITICAL: Disable for non-admins
                 # Force columns order
                 column_order=["No.", "operation_key", "article", "operation_number", "section", "norm_time", "color", "comment", "created_by_fmt", "created_at", "updated_by_fmt", "updated_at"]
             )
@@ -158,91 +165,121 @@ def render():
                         st.session_state.ops_page += 1
                         st.rerun()
 
-            # 9. Save Changes Logic
-            # Compare edited_df with df_page (using IDs)
-            # Simplified: Button to save all
-            
-            if st.button("💾 Зберегти зміни в таблиці", type="primary"):
-                with st.spinner("Збереження..."):
-                    updated_count = 0
-                    current_user_id = st.session_state.user.id if st.session_state.get("user") else None
-                    
-                    for index, row in edited_df.iterrows():
-                        op_id = row.get("id")
+            # 9. Save Changes Logic (Admin Only)
+            if is_admin:
+                st.divider()
+                st.markdown("##### 💾 Збереження змін")
+                
+                # Checkbox confirmation
+                confirm_save = st.checkbox("Я підтверджую правильність змін", key="confirm_ops_save")
+                
+                if st.button("Зберегти зміни в таблиці", type="primary", disabled=not confirm_save):
+                    with st.spinner("Збереження..."):
+                        updated_count = 0
+                        current_user_id = st.session_state.user.id if st.session_state.get("user") else None
                         
-                        # Prepare data
-                        row_data = {
-                            "operation_key": row["operation_key"],
-                            "article": row["article"],
-                            "operation_number": row["operation_number"],
-                            "section": row["section"],
-                            "norm_time": row["norm_time"],
-                            "comment": row["comment"],
-                            "color": row["color"]
-                        }
-                        
-                        if pd.isna(op_id):
-                            continue # Ignore new rows here? or Create? 
-                            # Data_editor dynamic rows usually have None ID.
-                            # But wait, original DF has IDs.
-                            # If row was added via "dynamic" num_rows, it has no ID.
-                            # service.create_operation(row_data, user_id=current_user_id)
-                        else:
-                            # It's an update
-                            # Check change? For now, we update if ID exists.
-                            # Optimization: only update if changed.
-                            service.update_operation(op_id, row_data, user_id=current_user_id)
-                            updated_count += 1
+                        for index, row in edited_df.iterrows():
+                            op_id = row.get("id")
                             
-                    st.success(f"Оновлено {updated_count} записів!")
-                    st.rerun()
+                            row_data = {
+                                "operation_key": row["operation_key"],
+                                "article": row["article"],
+                                "operation_number": row["operation_number"],
+                                "section": row["section"],
+                                "norm_time": row["norm_time"],
+                                "comment": row["comment"],
+                                "color": row["color"]
+                            }
+                            
+                            if pd.isna(op_id):
+                                continue 
+                            else:
+                                service.update_operation(op_id, row_data, user_id=current_user_id)
+                                updated_count += 1
+                                
+                        st.success(f"✅ Оновлено {updated_count} записів!")
+                        st.rerun()
+                
+                # 10. Delete All (Admin Only, Double Confirm)
+                st.divider()
+                with st.expander("🗑️ Небезпечна зона (Видалити все)"):
+                    st.error("Увага! Ця дія видалить ВСІ операції з бази даних. Це незворотньо.")
+                    
+                    # Double confirmation pattern
+                    confirm_delete_1 = st.checkbox("Я розумію, що дані будуть втрачені назавжди", key="del_all_1")
+                    
+                    if st.button("🗑️ Видалити ВСІ операції", type="primary", disabled=not confirm_delete_1):
+                        # Use a second, explicit confirmation via a temporary container or just require the checkbox logic above.
+                        # User asked for "receive confirmation twice". 
+                        # Checkbox is one, checking button is action. 
+                        # Let's add a second checkbox for "Double Confirmation".
+                        st.session_state.show_final_delete_confirm = True
+                        
+                    if st.session_state.get("show_final_delete_confirm"):
+                        st.warning("Ви точно впевнені? Підтвердіть ще раз.")
+                        if st.button("💀 ТАК, ВИДАЛИТИ ВСЕ", type="secondary"):
+                             if service.delete_all_operations():
+                                 st.success("Всі операції успішно видалено.")
+                                 st.session_state.show_final_delete_confirm = False
+                                 st.rerun()
+                             else:
+                                 st.error("Помилка при видаленні.")
 
         else:
             st.info("Довідник порожній. Додайте операції через імпорт або вкладку 'Нова операція'.")
 
     # --- TAB 2: NEW OPERATION ---
     with tab_new:
-        st.subheader("➕ Додати нову операцію")
-        with st.form("new_op_form"):
-            c1, c2 = st.columns(2)
-            op_key = c1.text_input("Ключ операції (Operation Key)", help="Унікальний ідентифікатор")
-            article = c2.text_input("Артикул")
-            
-            c3, c4 = st.columns(2)
-            op_num = c3.text_input("Номер операції")
-            section = c4.text_input("Дільниця (Section)")
-            
-            c5, c6 = st.columns(2)
-            norm_time = c5.number_input("Норма часу (хв)", min_value=0.0, step=0.01)
-            color = c6.color_picker("Колір", "#E0E0E0")
-            
-            comment = st.text_area("Коментар")
-            
-            if st.form_submit_button("Створити операцію"):
-                if not op_key or not article:
-                    st.error("Ключ та Артикул є обов'язковими!")
-                else:
-                    data = {
-                        "operation_key": op_key,
-                        "article": article,
-                        "operation_number": op_num,
-                        "section": section,
-                        "norm_time": norm_time,
-                        "comment": comment,
-                        "color": color
-                    }
-                    current_user_id = st.session_state.user.id if st.session_state.get("user") else None
-                    success, msg = service.create_operation(data, user_id=current_user_id)
-                    if success:
-                        st.success("Операцію додано!")
-                        st.rerun()
+        if not is_admin:
+             st.warning("⛔ Створення нових операцій доступно тільки адміністраторам.")
+        else:
+            st.subheader("➕ Додати нову операцію")
+            with st.form("new_op_form"):
+                c1, c2 = st.columns(2)
+                op_key = c1.text_input("Ключ операції (Operation Key)", help="Унікальний ідентифікатор")
+                article = c2.text_input("Артикул")
+                
+                c3, c4 = st.columns(2)
+                op_num = c3.text_input("Номер операції")
+                section = c4.text_input("Дільниця (Section)")
+                
+                c5, c6 = st.columns(2)
+                norm_time = c5.number_input("Норма часу (хв)", min_value=0.0, step=0.01)
+                color = c6.color_picker("Колір", "#E0E0E0")
+                
+                comment = st.text_area("Коментар")
+                
+                if st.form_submit_button("Створити операцію"):
+                    # Add confirmation check logic within form? 
+                    # User said "any changes need to be confirmed". 
+                    # Forms have a submit button. It acts as confirmation.
+                    # But if we want explicit extra checkbox:
+                    pass 
+                
+                    if not op_key or not article:
+                        st.error("Ключ та Артикул є обов'язковими!")
                     else:
-                        st.error(f"Помилка: {msg}")
+                        data = {
+                            "operation_key": op_key,
+                            "article": article,
+                            "operation_number": op_num,
+                            "section": section,
+                            "norm_time": norm_time,
+                            "comment": comment,
+                            "color": color
+                        }
+                        current_user_id = st.session_state.user.id if st.session_state.get("user") else None
+                        success, msg = service.create_operation(data, user_id=current_user_id)
+                        if success:
+                            st.success("Операцію додано!")
+                            st.rerun()
+                        else:
+                            st.error(f"Помилка: {msg}")
 
     # --- TAB 3: IMPORT ---
     with tab_import:
-        if st.session_state.role not in [UserRole.ADMIN, UserRole.MANAGER]:
-            st.warning("⚠️ Імпорт доступний тільки для Адміністраторів та Менеджерів.")
+        if not is_admin:
+             st.warning("⛔ Імпорт доступний тільки для Адміністраторів.")
         else:
             st.markdown("### Імпорт операцій з Excel")
             uploaded_file = st.file_uploader("Завантажте файл", type=["xlsx", "xls"])
@@ -339,11 +376,12 @@ def render():
                         
                         # Options
                         skip_empty = st.checkbox("🚫 Не імпортувати пусті рядки", value=True)
-                        
+                        confirm_import = st.checkbox("✅ Підтверджую імпорт даних (це змінить базу)", key="conf_imp")
+
                         if valid_rows_count == 0:
                             st.error("❌ Немає даних для імпорту (всі рядки пусті або не вибрані стовпці).")
                         else:
-                            if st.button("🚀 Виконати імпорт"):
+                            if st.button("🚀 Виконати імпорт", disabled=not confirm_import):
                                 with st.spinner("Імпортуємо дані..."):
                                     # Filter DF if needed
                                     if skip_empty:
