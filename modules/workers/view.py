@@ -51,9 +51,6 @@ def render():
             # Add "No." column
             df_workers.insert(0, "No.", range(1, len(df_workers) + 1))
             
-            # Add "Delete?" column for UI actions (default False)
-            df_workers.insert(0, "Delete?", False)
-            
             # Format User/Date Columns
             for col in ['created_at', 'updated_at']:
                 if col in df_workers.columns:
@@ -65,18 +62,16 @@ def render():
 
             st.write("### 📝 Швидке редагування")
             st.caption("Редагуйте Посаду, Компетенцію та Коментарі в таблиці. Для зміни Типів операцій використовуйте детальну форму нижче.")
-            st.caption("⚠️ Щоб видалити працівників, поставте галочку в колонці 'Видалити?' і натисніть кнопку 'Видалити обраних' внизу.")
 
             edited_df = st.data_editor(
                 df_workers,
                 key="workers_editor",
                 column_config={
                      "id": None,
-                     "email": None, # Hide Email
-                     "Delete?": st.column_config.CheckboxColumn("Видалити?", width="small", help="Оберіть для видалення"),
+                     "email": None, # Hide Email (Not present in workers table anyway usually)
                      "No.": st.column_config.NumberColumn("№", width="small", disabled=True),
                      "full_name": "ПІБ",
-                     "role": st.column_config.SelectboxColumn("Роль", options=[UserRole.ADMIN, UserRole.MANAGER, UserRole.WORKER, UserRole.VIEWER]),
+                     # Role removed
                      "position": "Посада",
                      "competence": "Компетенція",
                      "comment": st.column_config.TextColumn("Коментар", width="medium"),
@@ -89,46 +84,27 @@ def render():
                 height=500
             )
             
-            c1, c2 = st.columns([1, 4])
-            
-            with c1:
-                 # Delete Button
-                if st.button("🗑️ Видалити обраних", type="primary"):
-                    to_delete = edited_df[edited_df['Delete?'] == True]
-                    if not to_delete.empty:
-                        rows_deleted = 0
-                        for index, row in to_delete.iterrows():
-                            if service.delete_worker(row['id']):
-                                rows_deleted += 1
-                        
-                        if rows_deleted > 0:
-                            st.success(f"Видалено {rows_deleted} працівників.")
-                            st.rerun()
-                    else:
-                        st.info("Не обрано жодного працівника для видалення.")
-
-            with c2:
-                # Save Button for Table Edits
-                if st.button("💾 Зберегти зміни таблиці"):
-                    current_user_id = st.session_state.user.id if st.session_state.get("user") else None
-                    changes_count = 0
-                    for index, row in edited_df.iterrows():
-                        # Check against original (naive check or just update all)
-                        # We'll just update fields that are editable in table
-                        
-                        uid = row['id']
-                        update_data = {
-                            "full_name": row['full_name'],
-                            "role": row['role'],
-                            "position": row['position'],
-                            "competence": row['competence'],
-                            "comment": row['comment']
-                        }
-                        service.update_worker_profile(uid, update_data, current_user_id)
-                        changes_count += 1
+            # Save Button for Table Edits
+            if st.button("💾 Зберегти зміни таблиці"):
+                current_user_id = st.session_state.user.id if st.session_state.get("user") else None
+                changes_count = 0
+                for index, row in edited_df.iterrows():
+                    # Check against original (naive check or just update all)
+                    # We'll just update fields that are editable in table
                     
-                    st.success("Дані оновлено!")
-                    st.rerun()
+                    uid = row['id']
+                    update_data = {
+                        "full_name": row['full_name'],
+                        # role removed
+                        "position": row['position'],
+                        "competence": row['competence'],
+                        "comment": row['comment']
+                    }
+                    service.update_worker_profile(uid, update_data, current_user_id)
+                    changes_count += 1
+                
+                st.success("Дані оновлено!")
+                st.rerun()
 
             st.divider()
             st.subheader("🛠️ Детальне налаштування (Типи операцій)")
