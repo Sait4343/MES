@@ -69,6 +69,7 @@ alter table public.order_operations add column if not exists scheduled_end_at ti
 alter table public.order_operations add column if not exists operation_name text;
 alter table public.order_operations add column if not exists section_id uuid references public.sections(id);
 alter table public.order_operations add column if not exists assigned_worker_id uuid references public.profiles(id);
+alter table public.order_operations add column if not exists completed_quantity integer default 0;
 
 -- 3c. Generated Column Check (Complex to allow if not exists, skipping for now as it's optimization)
 

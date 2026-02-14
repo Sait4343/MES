@@ -98,7 +98,7 @@ class OrderService:
             st.error(f"Error updating operation: {e}")
             return None
 
-    def get_workers_for_section(self, section_name):
+    def fetch_section_workers(self, section_name):
         """Find workers who have this section in their 'operation_types'."""
         try:
             # 'operation_types' is text[]
