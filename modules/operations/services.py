@@ -55,14 +55,26 @@ class OperationsService:
         df_mapped = df[list(rename_map.keys())].rename(columns=rename_map)
         
         # 2. Add defaults/clean types
+        import numpy as np
+        
         # 2. Add defaults/clean types
         # Clean norm_time specifically to ensure it's a number
         if 'norm_time' in df_mapped.columns:
+            # Force numeric, coerce errors to NaN, then fill with 0.0
             df_mapped['norm_time'] = pd.to_numeric(df_mapped['norm_time'], errors='coerce').fillna(0.0)
 
-        # Replace all other NaNs (e.g. empty strings in Excel) with None for valid JSON serialization
-        # (Pandas NaN -> JSON 'NaN' (invalid) vs None -> JSON null (valid))
-        df_mapped = df_mapped.where(pd.notnull(df_mapped), None)
+        # CRITICAL: Prepare for JSON serialization (Supabase API)
+        # 1. Cast to object to allow 'None' in float columns (otherwise Pandas forces NaN)
+        df_mapped = df_mapped.astype(object)
+        
+        # 2. Replace NaN and Infinity with None
+        # Note: 'replace' with dict is robust suitable for object-type DFs
+        df_mapped = df_mapped.replace({
+            np.nan: None, 
+            pd.NA: None, 
+            float('inf'): None, 
+            float('-inf'): None
+        })
             
         data = df_mapped.to_dict(orient='records')
         
