@@ -11,7 +11,7 @@ from modules.orders.services import OrderService
 from auth import login, logout, check_auth
 from utils import init_supabase
 
-    st.set_page_config(
+st.set_page_config(
     page_title="MES Production Planner",
     page_icon="🏭",
     layout="wide",
