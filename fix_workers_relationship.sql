@@ -13,9 +13,15 @@ CREATE TABLE IF NOT EXISTS public.workers (
     comment text,
     operation_types text[],
     section_id uuid REFERENCES public.sections(id),
+    created_by uuid REFERENCES public.profiles(id),
+    updated_by uuid REFERENCES public.profiles(id),
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()
 );
+
+-- 1b. Add audit columns if they don't exist (for existing tables)
+ALTER TABLE public.workers ADD COLUMN IF NOT EXISTS created_by uuid REFERENCES public.profiles(id);
+ALTER TABLE public.workers ADD COLUMN IF NOT EXISTS updated_by uuid REFERENCES public.profiles(id);
 
 -- 2. Populate 'workers' from 'profiles' (if not already populated)
 -- We use DISTINCT full_name to avoid duplicates if run multiple times
