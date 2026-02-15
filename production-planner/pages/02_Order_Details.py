@@ -197,6 +197,11 @@ def main():
     # --- Fetch Operations Data ---
     ops_data = service.get_order_operations(order_id)
     
+    # Add worker_name field for compatibility with Gantt chart
+    for op in ops_data:
+        worker_obj = op.get('workers')
+        op['worker_name'] = worker_obj.get('full_name') if worker_obj else None
+    
     if not ops_data:
         st.info("Для цього замовлення ще не створено детального плану операцій.")
     else:
@@ -207,13 +212,13 @@ def main():
         for op in ops_data:
             op_cat = op.get('operations_catalog') or {}
             sec = op.get('sections') or {}
-            prof = op.get('profiles') or {}
+            worker_obj = op.get('workers') or {}
             
             rows.append({
                 "id": op['id'],
                 "operation_name": op.get('operation_name'),
                 "Section": sec.get('name', '?'),
-                "Worker": prof.get('full_name', '-'),
+                "Worker": worker_obj.get('full_name', '-'),
                 "quantity": op.get('quantity', 0),
                 "norm_time_per_unit": op.get('norm_time_per_unit', 0.0),
                 "Delete": False

@@ -114,7 +114,7 @@ class AnalyticsService:
         try:
             # 1. Fetch Data
             ops = self.db.client.table("order_operations").select(
-                "*, orders(order_number, product_name), sections(name, capacity_minutes), profiles(full_name)"
+                "*, orders(order_number, product_name), sections(name, capacity_minutes), workers(full_name)"
             ).execute().data
             
             if not ops:
@@ -131,8 +131,8 @@ class AnalyticsService:
                 df['Section'] = df['sections'].apply(lambda x: x.get('name') if x else 'Unknown')
                 df['Section Cap'] = df['sections'].apply(lambda x: x.get('capacity_minutes', 0) if x else 0)
                 
-            if 'profiles' in df.columns:
-                df['Worker'] = df['profiles'].apply(lambda x: x.get('full_name') if x else 'Unassigned')
+            if 'workers' in df.columns:
+                df['Worker'] = df['workers'].apply(lambda x: x.get('full_name') if x else 'Unassigned')
             
             # 2. Calculate Gantt Schedule
             # We assume 'planned_date' is the start day.
