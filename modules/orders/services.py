@@ -117,14 +117,40 @@ class OrderService:
             st.error(f"Error deleting op: {e}")
             return False
 
-    def auto_schedule_order(self, order_id):
+    def get_busy_workers(self, start_time, end_time):
+        """
+        Find workers who are already assigned to operations that overlap with the given time range.
+        Overlap: (StartA < EndB) and (EndA > StartB)
+        """
+        try:
+            # We need to query order_operations where dates overlap
+            # Supabase/PostgREST doesn't have a simple "overlap" filter for ranges, 
+            # so we check: scheduled_start_at < end_time AND scheduled_end_at > start_time
+            
+            # Note: client.table().select() with filters
+            # We can use .lt('scheduled_start_at', end_time).gt('scheduled_end_at', start_time)
+            
+            response = self.db.client.table("order_operations").select("assigned_worker_id") \
+                .lt("scheduled_start_at", end_time.isoformat()) \
+                .gt("scheduled_end_at", start_time.isoformat()) \
+                .neq("assigned_worker_id", None) \
+                .execute()
+            
+            busy_ids = {row['assigned_worker_id'] for row in response.data}
+            return busy_ids
+        except Exception as e:
+            # print(f"Error checking busy workers: {e}")
+            return set()
+
+    def auto_schedule_order(self, order_id, assign_workers=True):
         """
         Automatically calculate start/end dates for all operations in an order.
+        Optionally assign free workers.
         Logic: Sequential execution based on sort_order.
-        Start Time = Order Start Date (or Now).
-        Next Op Start = Previous Op End.
         """
         import datetime
+        import random
+        
         try:
             # 1. Get Order Details for Start Date
             order = self.get_order_by_id(order_id)
@@ -133,15 +159,15 @@ class OrderService:
             start_base = order.get('start_date')
             if start_base:
                 current_time = datetime.datetime.fromisoformat(start_base)
-                # Ensure timezone awareness if PG requires it, or keep naive if consistent
-                # For simplicity, let's assume naive or matching server/client handling
             else:
                 current_time = datetime.datetime.now()
 
             # 2. Get All Operations Sorted
-            ops = self.db.client.table("order_operations").select("*").eq("order_id", order_id).order("sort_order").execute().data
+            ops = self.db.client.table("order_operations").select("*, sections(name)").eq("order_id", order_id).order("sort_order").execute().data
             
-            updates = []
+            # Cache workers to avoid repeated DB calls if possible, but availability changes per slot
+            # So we fetch qualified workers once per section if needed, but we need strictly per-slot availability
+            
             for op in ops:
                 # Calculate Duration (Minutes)
                 qty = op.get('quantity', 0)
@@ -149,15 +175,42 @@ class OrderService:
                 duration_mins = qty * norm
                 
                 # If 0 duration, assume default small window or 0
-                if duration_mins <= 0: duration_mins = 60 # Default 1 hour if unspecified
+                if duration_mins <= 0: duration_mins = 60 
 
                 end_time = current_time + datetime.timedelta(minutes=duration_mins)
                 
-                # Update Record
-                self.db.client.table("order_operations").update({
+                update_data = {
                     "scheduled_start_at": current_time.isoformat(),
                     "scheduled_end_at": end_time.isoformat()
-                }).eq("id", op['id']).execute()
+                }
+
+                # --- WORKER ASSIGNMENT ---
+                if assign_workers:
+                    section_name = op.get('sections', {}).get('name')
+                    if section_name:
+                        # 1. Get Qualified Workers for this section
+                        qualified = self.fetch_section_workers(section_name)
+                        qualified_ids = [w['id'] for w in qualified]
+                        
+                        if qualified_ids:
+                            # 2. Check who is busy in this specific slot
+                            busy_ids = self.get_busy_workers(current_time, end_time)
+                            
+                            # 3. Filter
+                            available = [uid for uid in qualified_ids if uid not in busy_ids]
+                            
+                            if available:
+                                # Assign first available (or random)
+                                # Logic: "not attached to any of the sections" - interpreted as just "free"
+                                update_data["assigned_worker_id"] = available[0] 
+                            else:
+                                # No one available? Keep current or set None? 
+                                # Let's keep existing if valid, or leave as is.
+                                # Requirement says "attach according to those who are free"
+                                pass
+
+                # Update Record
+                self.db.client.table("order_operations").update(update_data).eq("id", op['id']).execute()
                 
                 # Next starts when this ends (Sequential)
                 current_time = end_time

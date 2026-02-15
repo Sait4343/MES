@@ -163,11 +163,15 @@ def main():
     # AUTO-SCHEDULE BUTTON
     if ops_data: # This button should only appear if there are operations to schedule
         st.write("---")
-        if st.button("⚡ Авто-розклад (Розрахувати дати та дедлайни)", type="primary"):
-            with st.spinner("Розрахунок графіку..."):
-                if service.auto_schedule_order(order_id):
-                    st.success("Графік оновлено!")
-                    st.rerun()
+        col_sch1, col_sch2 = st.columns([3, 1])
+        with col_sch1:
+            assign_w = st.checkbox("🧩 Автоматично призначити вільних працівників", value=True, help="Призначити працівників, які мають відповідну кваліфікацію та вільні у визначений час.")
+        with col_sch2:
+            if st.button("⚡ Авто-розклад", type="primary"):
+                with st.spinner("Розрахунок графіку..."):
+                    if service.auto_schedule_order(order_id, assign_workers=assign_w):
+                        st.success("Графік оновлено!")
+                        st.rerun()
 
     if ops_data: # The rest of the UI (tabs) should only appear if ops_data exists
         # Pre-process data for easy display
@@ -180,6 +184,8 @@ def main():
                 'operation_name': op['operation_name'],
                 'section_name': sec['name'] if sec else 'Не призначено',
                 'worker_name': work['full_name'] if work else 'Не призначено',
+                'assigned_worker_id': op.get('assigned_worker_id'), # Need for edit
+                'section_id': op.get('section_id'), # Need for edit
                 'quantity': op['quantity'],
                 'status': op['status'],
                 'scheduled_start_at': op.get('scheduled_start_at'),
@@ -192,7 +198,7 @@ def main():
         # --- TABS ---
         tab_gantt, tab_list, tab_daily, tab_resources = st.tabs([
             "📅 Діаграма Ганта", 
-            "📋 Список операцій", 
+            "📋 Список операцій (Редагування)", 
             "📆 Розклад по днях", 
             "👥 Завантаження"
         ])
@@ -203,7 +209,9 @@ def main():
 
         # 2. OPERATIONS LIST
         with tab_list:
-            st.dataframe(
+            st.info("💡 Оберіть операцію у списку, щоб змінити працівника або дати.")
+            
+            event = st.dataframe(
                 df_ops,
                 column_config={
                     "operation_name": "Операція",
@@ -216,8 +224,63 @@ def main():
                 },
                 column_order=["operation_name", "section_name", "worker_name", "quantity", "scheduled_start_at", "scheduled_end_at", "status"],
                 hide_index=True,
-                use_container_width=True
+                use_container_width=True,
+                on_select="rerun",
+                selection_mode="single-row"
             )
+            
+            # --- EDIT FORM ---
+            if event.selection.rows:
+                idx = event.selection.rows[0]
+                selected_row = df_ops.iloc[idx]
+                
+                st.divider()
+                st.subheader(f"✏️ Редагування: {selected_row['operation_name']}")
+                
+                with st.form(key=f"edit_op_{selected_row['id']}"):
+                    ec1, ec2 = st.columns(2)
+                    
+                    with ec1:
+                        # Worker Selector using Section ID
+                        sec_id = selected_row['section_id']
+                        # Need section name to fetch workers? fetch_section_workers uses name.
+                        # df has section_name.
+                        sec_name = selected_row['section_name']
+                        
+                        # Fetch feasible workers
+                        s_workers = service.fetch_section_workers(sec_name)
+                        if not s_workers: s_workers = []
+                        
+                        # Create options
+                        # Add current worker if not in list (might happen if rules change)
+                        w_opts = {w['id']: w['full_name'] for w in s_workers}
+                        
+                        curr_w = selected_row['assigned_worker_id']
+                        
+                        new_worker = st.selectbox(
+                            "Працівник", 
+                            options=[None] + list(w_opts.keys()),
+                            format_func=lambda x: w_opts[x] if x else "--- (Не призначено)",
+                            index=([None] + list(w_opts.keys())).index(curr_w) if curr_w in w_opts else 0
+                        )
+                        
+                    with ec2:
+                        # Date Editing
+                        start_v = pd.to_datetime(selected_row['scheduled_start_at']) if pd.notnull(selected_row['scheduled_start_at']) else datetime.datetime.now()
+                        end_v = pd.to_datetime(selected_row['scheduled_end_at']) if pd.notnull(selected_row['scheduled_end_at']) else datetime.datetime.now()
+                        
+                        new_start = st.text_input("Початок (ISO)", value=start_v.isoformat())
+                        new_end = st.text_input("Кінець (ISO)", value=end_v.isoformat())
+                        
+                    if st.form_submit_button("💾 Зберегти зміни"):
+                        upd = {
+                            "assigned_worker_id": new_worker,
+                            "scheduled_start_at": new_start,
+                            "scheduled_end_at": new_end
+                        }
+                        if service.update_order_operation(selected_row['id'], upd):
+                            st.success("Зміни збережено!")
+                            st.rerun()
 
         # 3. DAILY SCHEDULE
         with tab_daily:
