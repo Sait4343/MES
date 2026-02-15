@@ -112,15 +112,19 @@ class AnalyticsService:
         3. Worker Workload
         """
         try:
-            # 1. Fetch Data
+            # 1. Fetch Data (without workers join to avoid FK error)
             ops = self.db.client.table("order_operations").select(
-                "*, orders(order_number, product_name), sections(name, capacity_minutes), workers(full_name)"
+                "*, orders(order_number, product_name), sections(name, capacity_minutes)"
             ).execute().data
             
             if not ops:
                 return pd.DataFrame()
             
             df = pd.DataFrame(ops)
+            
+            # 2. Fetch workers separately
+            workers_res = self.db.client.table("workers").select("id, full_name").execute()
+            workers_df = pd.DataFrame(workers_res.data) if workers_res.data else pd.DataFrame()
             
             # Flatten
             if 'orders' in df.columns:
@@ -130,9 +134,14 @@ class AnalyticsService:
             if 'sections' in df.columns:
                 df['Section'] = df['sections'].apply(lambda x: x.get('name') if x else 'Unknown')
                 df['Section Cap'] = df['sections'].apply(lambda x: x.get('capacity_minutes', 0) if x else 0)
-                
-            if 'workers' in df.columns:
-                df['Worker'] = df['workers'].apply(lambda x: x.get('full_name') if x else 'Unassigned')
+            
+            # 3. Manual join with workers by assigned_worker_id
+            if not workers_df.empty and 'assigned_worker_id' in df.columns:
+                df = df.merge(workers_df, left_on='assigned_worker_id', right_on='id', how='left', suffixes=('', '_worker'))
+                df['Worker'] = df['full_name'].fillna('Unassigned')
+                df.drop(columns=['id_worker', 'full_name'], inplace=True, errors='ignore')
+            else:
+                df['Worker'] = 'Unassigned'
             
             # 2. Calculate Gantt Schedule
             # We assume 'planned_date' is the start day.
