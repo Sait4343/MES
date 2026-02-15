@@ -50,10 +50,9 @@ class OrderService:
     def get_order_operations(self, order_id):
         """Fetch planned operations for an order with related names."""
         try:
-            # We fetch everything and manually join or use Supabase deep joins
-            # Note: Supabase-py syntax for foreign key joins: table(column, ...)
+            # JOIN 'workers' instead of 'profiles'
             response = self.db.client.table("order_operations").select(
-                "*, sections(name), profiles(full_name), operations_catalog(operation_key, article)"
+                "*, sections(name), workers(full_name), operations_catalog(operation_key, article)"
             ).eq("order_id", order_id).order("sort_order").execute()
             return response.data
         except Exception as e:
@@ -68,9 +67,9 @@ class OrderService:
             return []
 
     def get_all_workers(self):
-        """Fetch all workers (for assignment dropdowns)."""
+        """Fetch all workers from 'workers' table."""
         try:
-            return self.db.client.table("profiles").select("id, full_name, operation_types").eq("role", "worker").execute().data
+            return self.db.client.table("workers").select("id, full_name, operation_types, section_id").execute().data
         except Exception:
             return []
 
@@ -98,15 +97,29 @@ class OrderService:
             st.error(f"Error updating operation: {e}")
             return None
 
-    def fetch_section_workers(self, section_name):
-        """Find workers who have this section in their 'operation_types'."""
+    def get_workers_for_section(self, section_name):
+        """
+        Find workers compatible with a section.
+        Priority 1: Worker has section_id matching this section.
+        Priority 2: Worker has this section name in 'operation_types'.
+        """
         try:
-            # 'operation_types' is text[]
-            # PostgREST filter for array contains: cs (contains)
-            # Format: {Value} for array literal
-            return self.db.client.table("profiles").select("*").cs("operation_types", f"{{{section_name}}}").execute().data
+            # 1. Get Section ID
+            sec_res = self.db.client.table("sections").select("id").eq("name", section_name).execute()
+            if not sec_res.data:
+                return []
+            sec_id = sec_res.data[0]['id']
+
+            # 2. Fetch all workers (optimizable with complex OR query, but fetching all is safer for small teams)
+            # OR logic: section_id.eq.X OR operation_types.cs.{Name}
+            # PostgREST syntax for OR: or=(section_id.eq.X,operation_types.cs.{Name})
+            
+            or_filter = f"section_id.eq.{sec_id},operation_types.cs.{{{section_name}}}"
+            return self.db.client.table("workers").select("id, full_name, section_id").or_(or_filter).execute().data
+            
         except Exception as e:
-            # st.error(f"Error fetching workers: {e}")
+            # Fallback to simple query if complex filter fails
+            # st.error(f"Error fetching section workers: {e}")
             return []
 
     def delete_order_operation(self, op_id):
@@ -123,13 +136,6 @@ class OrderService:
         Overlap: (StartA < EndB) and (EndA > StartB)
         """
         try:
-            # We need to query order_operations where dates overlap
-            # Supabase/PostgREST doesn't have a simple "overlap" filter for ranges, 
-            # so we check: scheduled_start_at < end_time AND scheduled_end_at > start_time
-            
-            # Note: client.table().select() with filters
-            # We can use .lt('scheduled_start_at', end_time).gt('scheduled_end_at', start_time)
-            
             response = self.db.client.table("order_operations").select("assigned_worker_id") \
                 .lt("scheduled_start_at", end_time.isoformat()) \
                 .gt("scheduled_end_at", start_time.isoformat()) \
@@ -189,7 +195,8 @@ class OrderService:
                     section_name = op.get('sections', {}).get('name')
                     if section_name:
                         # 1. Get Qualified Workers for this section
-                        qualified = self.fetch_section_workers(section_name)
+                        # Now uses the combined strict + loose lookup from 'workers' table
+                        qualified = self.get_workers_for_section(section_name)
                         qualified_ids = [w['id'] for w in qualified]
                         
                         if qualified_ids:

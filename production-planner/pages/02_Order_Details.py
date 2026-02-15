@@ -44,7 +44,13 @@ def render_gantt_chart(df):
     # Sort sections by their first operation's start time (to respect flow)
     section_order = gantt_data.groupby('section_name')['Start'].min().sort_values().index.tolist()
     
-    colors_map = {}
+    colors_map = {
+        'Section': '#2E4053',
+        'not_started': '#BDC3C7', # Light Grey
+        'in_progress': '#3498DB', # Blue
+        'done': '#2ECC71',        # Green
+        'paused': '#F39C12'       # Orange
+    }
     
     for sec_name in section_order:
         sec_ops = gantt_data[gantt_data['section_name'] == sec_name].sort_values('Start')
@@ -54,24 +60,33 @@ def render_gantt_chart(df):
         sec_end = sec_ops['Finish'].max()
         
         plot_rows.append({
-            'Task': f"<b>🏗️ {sec_name}</b>", # Bold text for Section
+            'Task': f"<b>🏗️ {sec_name}</b>", 
             'Start': sec_start,
             'Finish': sec_end,
-            'Resource': 'SUMMARY', # Special tag for coloring
+            'Resource': 'SUMMARY', 
             'Worker': f"Всього: {len(sec_ops)} етапів",
             'ColorKey': 'Section',
+            'Progress': '-',
+            'Status': 'Running',
             'opacity': 1.0
         })
         
         # 2. Operation Rows
         for _, op in sec_ops.iterrows():
+            status = op.get('status', 'not_started')
+            done_qty = op.get('completed_quantity', 0)
+            total_qty = op.get('quantity', 0)
+            progress_str = f"{done_qty}/{total_qty}"
+            
             plot_rows.append({
-                'Task': f"&nbsp;&nbsp;&nbsp;&nbsp;🔹 {op['operation_name']}", # Indent
+                'Task': f"&nbsp;&nbsp;&nbsp;&nbsp;🔹 {op['operation_name']}",
                 'Start': op['Start'],
                 'Finish': op['Finish'],
                 'Resource': op['section_name'],
                 'Worker': op['worker_name'] if pd.notna(op['worker_name']) else "Вакасія",
-                'ColorKey': 'Operation',
+                'ColorKey': status, # Color by Status
+                'Progress': progress_str,
+                'Status': status,
                 'opacity': 0.8
             })
 
@@ -88,20 +103,20 @@ def render_gantt_chart(df):
             y="Task", 
             color="ColorKey", 
             text="Worker",
-            hover_data=["Task", "Start", "Finish"],
-            color_discrete_map={'Section': '#2E4053', 'Operation': '#3498DB'}, # Dark Grey for Sections, Blue for Ops
+            hover_data=["Task", "Start", "Finish", "Progress", "Status"],
+            color_discrete_map=colors_map, 
             title="Етапи робіт (Дільниці та Операції)"
         )
         
         fig_tasks.update_yaxes(autorange="reversed", title="", type="category") 
-        # Needs explicit category order? Usually insertion order is preserved in Plotly if type='category'
         
         fig_tasks.update_traces(textposition='inside', marker_line_color='rgb(8,48,107)', marker_line_width=1.5)
         fig_tasks.update_layout(
             xaxis_title="Дата та Час",
             height=400 + (len(df_plot) * 25), 
-            showlegend=False,
-            yaxis={'side': 'left'}
+            showlegend=True,
+            yaxis={'side': 'left'},
+            legend_title_text='Статус'
         )
         st.plotly_chart(fig_tasks, use_container_width=True)
     else:
