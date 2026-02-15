@@ -41,10 +41,17 @@ else:
         y="order_number", 
         color="product_name",
         hover_data=["quantity", "contractor", "comment"],
-        title="Order Timeline"
+        title="Графік замовлень",
+        labels={'order_number': 'Номер замовлення', 'product_name': 'Виріб', 
+                'quantity': 'Кількість', 'contractor': 'Контрагент', 'comment': 'Коментар'}
     )
     
-    fig.update_yaxes(autorange="reversed") # Show newest on top? Or just standard
+    fig.update_yaxes(autorange="reversed", title="Замовлення")
+    fig.update_xaxes(title="Дата")
+    fig.update_layout(
+        font=dict(family="Arial, sans-serif"),
+        legend_title_text="Виріб"
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 # Upcoming Deliveries Table

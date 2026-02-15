@@ -124,10 +124,22 @@ def render_gantt_chart(df):
         fig_tasks.update_traces(textposition='inside', marker_line_color='rgb(8,48,107)', marker_line_width=1.5)
         fig_tasks.update_layout(
             xaxis_title="Дата та Час",
+            yaxis_title="",
             height=400 + (len(df_plot) * 25), 
             showlegend=True,
             yaxis={'side': 'left'},
-            legend_title_text='Статус'
+            legend_title_text='Статус',
+            font=dict(family="Arial, sans-serif"),
+            hovermode='closest'
+        )
+        # Localize hover labels
+        fig_tasks.update_traces(
+            hovertemplate='<b>%{customdata[0]}</b><br>' +
+                         'Початок: %{customdata[1]}<br>' +
+                         'Кінець: %{customdata[2]}<br>' +
+                         'Прогрес: %{customdata[3]}<br>' +
+                         'Статус: %{customdata[4]}<extra></extra>',
+            customdata=df_plot[['Task', 'Start', 'Finish', 'Progress', 'Status']].values
         )
         st.plotly_chart(fig_tasks, use_container_width=True)
     else:
@@ -145,15 +157,19 @@ def render_gantt_chart(df):
         x_start="Start", 
         x_end="Finish", 
         y="Worker", 
-        color="section_name", # Color by Section here is nice
+        color="section_name",
         hover_data=["operation_name", "quantity"],
-        title="Завантаження персоналу"
+        title="Завантаження персоналу",
+        labels={'section_name': 'Дільниця', 'operation_name': 'Операція', 'quantity': 'Кількість'}
     )
-    fig_resources.update_yaxes(autorange="reversed", title="") 
+    fig_resources.update_yaxes(autorange="reversed", title="Працівник") 
     fig_resources.update_layout(
         xaxis_title="Дата та Час",
+        yaxis_title="Працівник",
         height=300 + (len(gantt_data['Worker'].unique()) * 30),
-        showlegend=True
+        showlegend=True,
+        legend_title_text="Дільниця",
+        font=dict(family="Arial, sans-serif")
     )
     st.plotly_chart(fig_resources, use_container_width=True)
 

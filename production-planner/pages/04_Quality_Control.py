@@ -58,12 +58,28 @@ with tab2:
         
         with col1:
             st.markdown("**Кількість дефектів за типом**")
-            fig_type = px.pie(df_stats, values='quantity', names='defect_type', hole=0.4)
+            fig_type = px.pie(
+                df_stats, 
+                values='quantity', 
+                names='defect_type', 
+                hole=0.4,
+                labels={'quantity': 'Кількість', 'defect_type': 'Тип дефекту'}
+            )
+            fig_type.update_layout(font=dict(family="Arial, sans-serif"))
             st.plotly_chart(fig_type, use_container_width=True)
             
         with col2:
             st.markdown("**ТОП Причин Дефектів**")
-            fig_reason = px.bar(df_stats.groupby('reason')['quantity'].sum().reset_index(), x='reason', y='quantity', color='quantity')
+            fig_reason = px.bar(
+                df_stats.groupby('reason')['quantity'].sum().reset_index(), 
+                x='reason', 
+                y='quantity', 
+                color='quantity',
+                labels={'reason': 'Причина', 'quantity': 'Кількість'}
+            )
+            fig_reason.update_layout(font=dict(family="Arial, sans-serif"))
+            fig_reason.update_xaxes(title_text="Причина")
+            fig_reason.update_yaxes(title_text="Кількість")
             st.plotly_chart(fig_reason, use_container_width=True)
             
         st.dataframe(df_stats, use_container_width=True)

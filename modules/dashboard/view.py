@@ -97,12 +97,13 @@ def render():
                             hole=0.7,
                             color_discrete_sequence=[color, '#e0e0e0']
                         )
-                        fig_gauge.update_traces(textinfo='none', hoverinfo='label+percent')
+                        fig_gauge.update_traces(textinfo='none', hovertemplate='%{label}: %{percent}<extra></extra>')
                         fig_gauge.update_layout(
                             showlegend=False,
                             height=150,
                             margin=dict(t=0, b=0, l=0, r=0),
-                            annotations=[dict(text=f'{utilization}%', x=0.5, y=0.5, font_size=20, showarrow=False)]
+                            annotations=[dict(text=f'{utilization}%', x=0.5, y=0.5, font_size=20, showarrow=False)],
+                            font=dict(family="Arial, sans-serif")
                         )
                         st.plotly_chart(fig_gauge, use_container_width=True, key=f"gauge_{metric['section_id']}")
                         
@@ -120,9 +121,11 @@ def render():
                             fig_trend.update_layout(
                                 height=150,
                                 margin=dict(t=30, b=20, l=20, r=20),
-                                showlegend=False
+                                showlegend=False,
+                                font=dict(family="Arial, sans-serif")
                             )
-                            fig_trend.update_xaxes(tickformat='%d.%m')
+                            fig_trend.update_xaxes(tickformat='%d.%m', title_text="Дата")
+                            fig_trend.update_yaxes(title_text="Завантаження (%)")
                             st.plotly_chart(fig_trend, use_container_width=True, key=f"trend_{metric['section_id']}")
                         
                         # Expandable details
@@ -137,7 +140,16 @@ def render():
             st.write("##### 👷 Навантаження на Працівників")
             worker_load = df_plan[df_plan['Worker'] != 'Unassigned'].groupby('Worker')['total_estimated_time'].sum().reset_index()
             if not worker_load.empty:
-                fig_work = px.bar(worker_load, x="Worker", y="total_estimated_time", title="Зайнятість працівників (хв)")
+                fig_work = px.bar(
+                    worker_load, 
+                    x="Worker", 
+                    y="total_estimated_time", 
+                    title="Зайнятість працівників (хв)",
+                    labels={'Worker': 'Працівник', 'total_estimated_time': 'Час (хв)'}
+                )
+                fig_work.update_layout(font=dict(family="Arial, sans-serif"))
+                fig_work.update_xaxes(title_text="Працівник")
+                fig_work.update_yaxes(title_text="Час (хв)")
                 st.plotly_chart(fig_work, use_container_width=True)
             
         # C. Export Schedule
