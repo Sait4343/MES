@@ -1,3 +1,9 @@
+import sys
+import os
+
+# Add project root to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import streamlit as st
 from auth import login, logout, check_auth
 from utils import init_supabase
