@@ -219,3 +219,40 @@ class OrderService:
         except Exception as e:
             st.error(f"Auto-schedule failed: {e}")
             return False
+    def get_active_orders_distribution(self):
+        """
+        Calculate distribution of active orders by their current section.
+        'Current section' is defined as the section of the first incomplete operation.
+        """
+        try:
+            # 1. Fetch all active orders (heuristic: not completed/shipped, or just all for now)
+            # For accurate status, we might need an 'orders' status column, but let's iterate all.
+            orders = self.get_orders()
+            distribution = {}
+
+            for order in orders:
+                # 2. Get operations for this order
+                # This could be N+1 slow, but optimized later with a view or join.
+                ops = self.db.client.table("order_operations").select("status, sections(name)") \
+                    .eq("order_id", order['id']) \
+                    .order("sort_order") \
+                    .execute().data
+                
+                current_section = "Не сплановано"
+                
+                # Find first non-done operation
+                for op in ops:
+                    if op.get('status') != 'done':
+                        sec = op.get('sections')
+                        current_section = sec.get('name') if sec else "Без дільниці"
+                        break
+                else:
+                     # If loops finishes (all done), check if ops existed
+                     if ops: current_section = "Готово / Склад"
+                
+                distribution[current_section] = distribution.get(current_section, 0) + 1
+                
+            return distribution
+        except Exception as e:
+            # st.error(f"Error calculating distribution: {e}")
+            return {}

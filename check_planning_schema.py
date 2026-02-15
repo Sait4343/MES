@@ -1,46 +1,47 @@
-import toml
-from supabase import create_client
+import streamlit as st
 import sys
+import os
+
+# Add production-planner to sys.path to import utils
+current_dir = os.path.dirname(os.path.abspath(__file__))
+planner_dir = os.path.join(current_dir, "production-planner")
+sys.path.append(planner_dir)
+
+try:
+    from utils import init_supabase
+except ImportError as e:
+    st.error(f"Failed to import utils: {e}")
+    st.stop()
 
 def check_schema():
+    st.title("Database Schema Verification")
+    
     try:
-        secrets = toml.load(".streamlit/secrets.toml")
-        url = secrets["SUPABASE_URL"]
-        key = secrets["SUPABASE_KEY"]
-        supabase = create_client(url, key)
-
-        print("Checking for 'sections' table...")
-        try:
-            supabase.table("sections").select("id").limit(1).execute()
-            print("✅ Table 'sections' exists.")
-        except Exception as e:
-            print(f"❌ Table 'sections' check failed: {e}")
-            return False
-
-        print("Checking for 'operations_catalog' table...")
-        try:
-            supabase.table("operations_catalog").select("id").limit(1).execute()
-            print("✅ Table 'operations_catalog' exists.")
-        except Exception as e:
-            print(f"❌ Table 'operations_catalog' check failed: {e}")
-            return False
-
-        print("Checking for 'order_operations' table...")
-        try:
-            supabase.table("order_operations").select("id").limit(1).execute()
-            print("✅ Table 'order_operations' exists.")
-        except Exception as e:
-            print(f"❌ Table 'order_operations' check failed: {e}")
-            return False
-
-        return True
-
+        client = init_supabase()
     except Exception as e:
-        print(f"Error connecting to Supabase: {e}")
-        return False
+        st.error(f"Failed to initialize Supabase: {e}")
+        return
+
+    tables = ["sections", "operations_catalog", "order_operations"]
+    missing = []
+    
+    for table in tables:
+        try:
+            # Try to select 1 row to check existence
+            client.table(table).select("id").limit(1).execute()
+            st.success(f"✅ Table **{table}** exists and is accessible.")
+        except Exception as e:
+            st.error(f"❌ Table **{table}** check failed.")
+            with st.expander("Error Details"):
+                st.write(e)
+            missing.append(table)
+            
+    if not missing:
+        st.success("🎉 All required tables are present!")
+        print("SCHEMA_VERIFICATION_PASSED")
+    else:
+        st.warning("⚠️ Some tables are missing. Please run `setup_advanced_planning.sql`.")
+        print("SCHEMA_VERIFICATION_FAILED")
 
 if __name__ == "__main__":
-    if check_schema():
-        print("Schema verification PASSED.")
-    else:
-        print("Schema verification FAILED. Please run 'setup_advanced_planning.sql'.")
+    check_schema()

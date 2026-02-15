@@ -32,20 +32,20 @@ def render_gantt_chart(df):
     # Ensure datetime format
     gantt_data['Start'] = pd.to_datetime(gantt_data['scheduled_start_at'])
     gantt_data['Finish'] = pd.to_datetime(gantt_data['scheduled_end_at'])
-    gantt_data['Task'] = gantt_data['operation_name']
-    gantt_data['Resource'] = gantt_data['section_name']  # Color by Section
+    gantt_data['Resource'] = gantt_data['section_name']  
+    gantt_data['Operation'] = gantt_data['operation_name']
 
     fig = px.timeline(
         gantt_data, 
         x_start="Start", 
         x_end="Finish", 
-        y="Task", 
-        color="Resource",
-        hover_data=["worker_name", "status", "quantity"],
-        title="Графік виконання замовлення"
+        y="Resource", # Y-axis is Section now
+        color="Operation", # Color by Operation
+        hover_data=["worker_name", "status", "quantity", "Operation"],
+        title="Графік виконання замовлення по дільницях"
     )
-    fig.update_yaxes(autorange="reversed") # Should match logical order
-    fig.update_layout(xaxis_title="Час", yaxis_title="Операція")
+    fig.update_yaxes(autorange="reversed", title="Дільниця") 
+    fig.update_layout(xaxis_title="Час")
     
     st.plotly_chart(fig, use_container_width=True)
 
@@ -91,10 +91,88 @@ def main():
     
     if not ops_data:
         st.info("Для цього замовлення ще не створено детального плану операцій.")
-        # TODO: Add button to "Generate Default Plan" if needed
-    
+    else:
+        st.subheader("📋 Поточний маршрут (Редагування)")
+        
+        # Prepare Data for Editor
+        rows = []
+        for op in ops_data:
+            op_cat = op.get('operations_catalog') or {}
+            sec = op.get('sections') or {}
+            prof = op.get('profiles') or {}
+            
+            rows.append({
+                "id": op['id'],
+                "operation_name": op.get('operation_name'),
+                "Section": sec.get('name', '?'),
+                "Worker": prof.get('full_name', '-'),
+                "quantity": op.get('quantity', 0),
+                "norm_time_per_unit": op.get('norm_time_per_unit', 0.0),
+                "Delete": False
+            })
+            
+        df_edit = pd.DataFrame(rows)
+
+        # Edits
+        edited_df = st.data_editor(
+            df_edit,
+            column_config={
+                "id": None, # Hide ID
+                "operation_name": st.column_config.TextColumn("Операція", disabled=True),
+                "Section": st.column_config.TextColumn("Дільниця", disabled=True),
+                "Worker": st.column_config.TextColumn("Працівник", disabled=True),
+                "quantity": st.column_config.NumberColumn("К-ть", min_value=1, step=1, required=True),
+                "norm_time_per_unit": st.column_config.NumberColumn("Норма (хв)", min_value=0.0, step=0.01, format="%.2f"),
+                "Delete": st.column_config.CheckboxColumn("🗑️", help="Позначте, щоб видалити")
+            },
+            hide_index=True,
+            use_container_width=True,
+            key="plan_editor_top"
+        )
+        
+        # Save Button
+        if st.button("💾 Зберегти зміни маршруту"):
+            changes_made = False
+            
+            # Progress bar for feedback
+            prog = st.progress(0)
+            total = len(edited_df)
+            
+            for idx, row in edited_df.iterrows():
+                op_id = row['id']
+                original_row = next((r for r in rows if r['id'] == op_id), None)
+                
+                # 1. Handle Deletion
+                if row['Delete']:
+                    service.delete_order_operation(op_id)
+                    changes_made = True
+                
+                # 2. Handle Updates (if not deleted)
+                elif original_row:
+                    updates = {}
+                    if row['quantity'] != original_row['quantity']:
+                        updates['quantity'] = row['quantity']
+                    if row['norm_time_per_unit'] != original_row['norm_time_per_unit']:
+                        updates['norm_time_per_unit'] = row['norm_time_per_unit']
+                        
+                    if updates:
+                        service.update_order_operation(op_id, updates)
+                        changes_made = True
+                
+                prog.progress((idx + 1) / total)
+
+            if changes_made:
+                # AUTO-RECALCULATE SCHEDULE
+                with st.spinner("🔄 Перерахунок графіку..."):
+                    service.auto_schedule_order(st.session_state.selected_order_id)
+                
+                st.success("✅ Зміни успішно збережено та графік оновлено!")
+                st.rerun()
+            else:
+                st.info("Змін не виявлено.")
+
     st.divider()
-    st.subheader("🛠️ Планування виробництва (Маршрут)")
+    st.subheader("➕ Додати етап") # Updated title (was Plans Production)
     
     with st.container(border=True):
         # 1. Initialize Planning Session
