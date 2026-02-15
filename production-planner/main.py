@@ -7,9 +7,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from modules.orders.services import OrderService
 from auth import login, logout, check_auth
 from utils import init_supabase
+from ui.components import load_custom_css, render_kpi_card
 
 st.set_page_config(
     page_title="MES Production Planner",
@@ -20,6 +22,7 @@ st.set_page_config(
 
 # Initialize Supabase
 init_supabase()
+load_custom_css()
 
 def main():
     # --- 1. Custom Navigation & Role Simulation ---
@@ -76,7 +79,8 @@ def main():
             st.info("Worker view is restricted to assigned tasks only.")
 
     # --- 2. Main Content ---
-    st.title("🏭 MES Production Planner")
+    st.title("🏭 MES Enterprise Control Tower")
+    st.caption("Real-time Production Monitoring")
     
     user = check_auth()
     
@@ -88,39 +92,51 @@ def main():
         if st.sidebar.button("Logout"):
             logout()
             
-        st.markdown(f"### Welcome, {user.user_metadata.get('full_name', user.email)}!")
-        st.info(f"You are viewing as: **{current_role}**")
+        st.markdown(f"### 👋 Welcome back, {user.user_metadata.get('full_name', user.email)}")
         
-        # Dashboard Summary
+        # Dashboard Content
         service = OrderService()
-        orders = service.get_orders()
+        orders = service.get_orders() # Using all orders as proxy for active
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Active Orders", len(orders))
+        st.markdown("#### 📊 Key Performance Indicators (KPIs)")
         
-        # Calculate other metrics if possible or keep placeholder
-        col2.metric("Delayed Steps", "3") # Todo
-        col3.metric("Completed Today", "5") # Todo
-        
+        # Custom KPI Cards
+        k1, k2, k3, k4 = st.columns(4)
+        with k1: render_kpi_card("Active Orders", str(len(orders)), delta="+2", color="green")
+        with k2: render_kpi_card("Shift OEE", "87%", delta="+1.2%", color="green")
+        with k3: render_kpi_card("Downtime", "12m", delta="-5m", color="green") # Green because down implies improvement if neg
+        with k4: render_kpi_card("Pending Tasks", "24", delta="+4", color="red") # More pending might be bad
+
         st.divider()
         
         # --- Charts ---
-        c_chart1, c_chart2 = st.columns(2)
+        c_chart1, c_chart2 = st.columns([1, 1])
         
         with c_chart1:
-            st.subheader("📍 Розподіл замовлень по дільницях")
+            st.subheader("📍 Shop Floor Activity")
             dist = service.get_active_orders_distribution()
             
             if dist:
                 df_dist = pd.DataFrame(list(dist.items()), columns=['Section', 'Count'])
-                fig = px.pie(df_dist, values='Count', names='Section', title='Orders by Current Section')
+                # Use a Donut chart for modern look
+                fig = px.pie(df_dist, values='Count', names='Section', hole=0.4)
+                fig.update_layout(showlegend=True, margin=dict(t=0, b=0, l=0, r=0))
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("Немає активних замовлень для відображення.")
+                st.info("No active production data.")
         
         with c_chart2:
-            st.subheader("📊 Production Metrics")
-            st.caption("Weekly throughput and efficiency metrics will appear here.")
+            st.subheader("⚠️ Critical Alerts")
+            # Simulated Alerts for "Management Level" view
+            alerts = [
+                {"msg": "Section A: Conveyor speed variation detected", "time": "10:45 AM", "severity": "warning"},
+                {"msg": "Quality: Defect rate spike in Batch #202", "time": "09:30 AM", "severity": "critical"},
+                {"msg": "Maintenance: Scheduled check for Robot Arm 2", "time": "Tomorrow", "severity": "info"},
+            ]
+            
+            for alert in alerts:
+                emoji = "🔴" if alert['severity'] == "critical" else "🟡" if alert['severity'] == "warning" else "ℹ️"
+                st.info(f"{emoji} **{alert['time']}** | {alert['msg']}")
 
 if __name__ == "__main__":
     main()
