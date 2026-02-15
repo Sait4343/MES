@@ -189,7 +189,7 @@ def render_detail_view(service, sections_service):
                 st.write(f"📊 Розрахунковий час: **{calc_time:.2f} хв**")
                 
                 # Step 4: Available Workers
-                available_workers = service.fetch_section_workers(current_sec_name)
+                available_workers = service.get_workers_for_section(current_sec_name)
                 worker_options = {w['id']: w['full_name'] for w in available_workers}
                 
                 selected_worker_id = st.selectbox(
