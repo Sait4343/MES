@@ -48,13 +48,32 @@ class OrderService:
             return None
 
     def get_order_operations(self, order_id):
-        """Fetch planned operations for an order with related names."""
+        """Fetch all operations for a specific order with related data."""
         try:
-            # JOIN 'workers' instead of 'profiles'
+            # Fetch operations without workers join (workaround for missing FK)
             response = self.db.client.table("order_operations").select(
-                "*, sections(name), workers(full_name), operations_catalog(operation_key, article)"
+                "*, sections(name), operations_catalog(operation_key, article)"
             ).eq("order_id", order_id).order("sort_order").execute()
-            return response.data
+            
+            ops_data = response.data
+            
+            if not ops_data:
+                return []
+            
+            # Fetch workers separately
+            workers_res = self.db.client.table("workers").select("id, full_name").execute()
+            workers_map = {w['id']: w for w in workers_res.data} if workers_res.data else {}
+            
+            # Manually add worker info to each operation
+            for op in ops_data:
+                worker_id = op.get('assigned_worker_id')
+                if worker_id and worker_id in workers_map:
+                    op['workers'] = workers_map[worker_id]
+                else:
+                    op['workers'] = None
+            
+            return ops_data
+            
         except Exception as e:
             st.error(f"Error fetching plan: {e}")
             return []
