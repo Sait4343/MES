@@ -4,25 +4,22 @@ from core import auth
 
 def render_sidebar():
     """Render the sidebar navigation."""
-    # --- Role Switcher (Added) ---
-    st.sidebar.markdown("### 🎭 Role Switcher (Sim)")
-    sim_role = st.sidebar.selectbox(
-        "Perspective", 
-        ["Admin", "Planner", "Worker"],
-        index=0,
-        key="role_switcher"
-    )
+    # --- Role Switcher (Buttons) ---
+    st.sidebar.markdown("### 🎭 Change Role")
+    r_col1, r_col2, r_col3 = st.sidebar.columns(3)
     
-    # Map Simulation to UserRole
-    role_map = {
-        "Admin": UserRole.ADMIN,
-        "Planner": UserRole.MANAGER,
-        "Worker": UserRole.WORKER
-    }
-    effective_role = role_map.get(sim_role, UserRole.VIEWER)
+    if r_col1.button("👮 Admin"):
+        st.session_state["role"] = UserRole.ADMIN
+        st.rerun()
+    if r_col2.button("📅 Planner"):
+        st.session_state["role"] = UserRole.MANAGER
+        st.rerun()
+    if r_col3.button("👷 Worker"):
+        st.session_state["role"] = UserRole.WORKER
+        st.rerun()
 
-    # Use effective_role for logic
-    user_role = effective_role 
+    # Use session state role
+    user_role = st.session_state.get("role", UserRole.VIEWER) 
 
     # User Info
     if st.session_state.user_profile:

@@ -33,13 +33,22 @@ def main():
     with st.sidebar:
         st.title("🏭 MES System")
         
-        # Role Simulation
-        st.markdown("### 🎭 Role Switcher (Sim)")
-        current_role = st.selectbox(
-            "Current Perspective", 
-            ["Admin", "Planner", "Worker"],
-            index=0
-        )
+        # Role Simulation (Buttons)
+        st.markdown("### 🎭 Change Role")
+        r1, r2, r3 = st.columns(3)
+        
+        if r1.button("👮"):
+            st.session_state["sim_role"] = "Admin"
+            st.rerun()
+        if r2.button("📅"):
+            st.session_state["sim_role"] = "Planner"
+            st.rerun()
+        if r3.button("👷"):
+            st.session_state["sim_role"] = "Worker"
+            st.rerun()
+            
+        current_role = st.session_state.get("sim_role", "Admin")
+        st.caption(f"View: {current_role}")
         st.divider()
         
         # Navigation Logic
