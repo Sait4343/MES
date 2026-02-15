@@ -34,20 +34,50 @@ def render_gantt_chart(df):
     gantt_data['Finish'] = pd.to_datetime(gantt_data['scheduled_end_at'])
     gantt_data['Resource'] = gantt_data['section_name']  
     gantt_data['Operation'] = gantt_data['operation_name']
+    gantt_data['Worker'] = gantt_data['worker_name'].fillna("Не призначено")
 
-    fig = px.timeline(
+    # --- 1. PROJECT SCHEDULE (Tasks) ---
+    st.markdown("### 📅 Графік виконання проекту")
+    fig_tasks = px.timeline(
         gantt_data, 
         x_start="Start", 
         x_end="Finish", 
-        y="Resource", # Y-axis is Section now
-        color="Operation", # Color by Operation
-        hover_data=["worker_name", "status", "quantity", "Operation"],
-        title="Графік виконання замовлення по дільницях"
+        y="Operation", 
+        color="Resource", # Color by Section
+        text="Worker",    # Show who is assigned
+        hover_data=["quantity", "norm_time_per_unit", "status"],
+        title="Хронологія операцій"
     )
-    fig.update_yaxes(autorange="reversed", title="Дільниця") 
-    fig.update_layout(xaxis_title="Час")
-    
-    st.plotly_chart(fig, use_container_width=True)
+    fig_tasks.update_yaxes(autorange="reversed", title="") # Logic order
+    fig_tasks.update_traces(textposition='inside')
+    fig_tasks.update_layout(
+        xaxis_title="Дата та Час",
+        height=400 + (len(gantt_data) * 20), # Dynamic height
+        showlegend=True
+    )
+    st.plotly_chart(fig_tasks, use_container_width=True)
+
+    st.divider()
+
+    # --- 2. RESOURCE USAGE (Workers) ---
+    st.markdown("### 👥 Завантаження ресурсів")
+    # Filter out unassigned if needed, or show them
+    fig_resources = px.timeline(
+        gantt_data, 
+        x_start="Start", 
+        x_end="Finish", 
+        y="Worker", 
+        color="Operation", 
+        hover_data=["Resource", "quantity"],
+        title="Графік роботи працівників"
+    )
+    fig_resources.update_yaxes(autorange="reversed", title="") 
+    fig_resources.update_layout(
+        xaxis_title="Дата та Час",
+        height=300 + (len(gantt_data['Worker'].unique()) * 30),
+        showlegend=False # Too many operations might clutter legend
+    )
+    st.plotly_chart(fig_resources, use_container_width=True)
 
 def main():
     service = OrderService()
