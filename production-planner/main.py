@@ -149,17 +149,40 @@ def main():
             if chart_data:
                 df_chart = pd.DataFrame(chart_data)
                 
-                # Plotly Stacked Bar
+                # Plotly Stacked Bar (Vertical)
+                # X = Order (One column per order)
+                # Y = Duration (Stacked)
+                # Color = Section
+                # Pattern = Status
+                
                 fig = px.bar(
                     df_chart,
                     x="Order",
                     y="Duration",
                     color="Section",
-                    pattern_shape="Status",  # Status texture (Crosshatch vs Solid)
-                    hover_data=["Start", "End", "Status"],
-                    title="Завантаження по Замовленнях"
+                    pattern_shape="Status",
+                    text="Section", # Label inside bars
+                    hover_data={
+                        "Order": False, # Hide distinct order in hover (it's in title)
+                        "Section": True,
+                        "Duration": ":.1f hours",
+                        "Start": True,
+                        "End": True,
+                        "Status": True
+                    },
+                    title="Графік Завантаження Замовлень (Vertical Stack Allocation)"
                 )
-                fig.update_layout(barmode='stack', xaxis_title="Order Number", yaxis_title="Est. Hours")
+                
+                fig.update_layout(
+                    barmode='stack', 
+                    xaxis_title="Номер Замовлення", 
+                    yaxis_title="Оцінка часу (год)",
+                    xaxis={'type': 'category'} # Force discrete columns
+                )
+                
+                # Text styling
+                fig.update_traces(textposition='inside', textfont_size=12)
+                
                 st.plotly_chart(fig, use_container_width=True)
             else:
                  st.info("No operations data available for charting.")
