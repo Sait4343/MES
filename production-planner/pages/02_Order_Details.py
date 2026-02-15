@@ -94,6 +94,17 @@ def render_gantt_chart(df):
 
     # --- 1. PROJECT SCHEDULE (Hierarchical) ---
     st.markdown("### 📅 Графік виконання проекту")
+
+    # EXPORT BUTTON
+    if not gantt_data.empty:
+        csv_data = gantt_data.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="💾 Завантажити План (CSV/Excel)",
+            data=csv_data,
+            file_name=f"production_plan.csv",
+            mime="text/csv",
+            key="download_gantt"
+        )
     
     if not df_plot.empty:
         fig_tasks = px.timeline(

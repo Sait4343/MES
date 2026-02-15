@@ -130,23 +130,33 @@ class OrderService:
             st.error(f"Error deleting op: {e}")
             return False
 
-    def get_busy_workers(self, start_time, end_time):
-        """
-        Find workers who are already assigned to operations that overlap with the given time range.
-        Overlap: (StartA < EndB) and (EndA > StartB)
-        """
+    def get_worker_tasks(self, worker_id):
+        """Fetch all tasks assigned to a specific worker."""
         try:
-            response = self.db.client.table("order_operations").select("assigned_worker_id") \
-                .lt("scheduled_start_at", end_time.isoformat()) \
-                .gt("scheduled_end_at", start_time.isoformat()) \
-                .neq("assigned_worker_id", None) \
-                .execute()
-            
-            busy_ids = {row['assigned_worker_id'] for row in response.data}
-            return busy_ids
+            # Join with orders to get context (Order #, Article)
+            # Join with operations_catalog to get operation name/key
+            return self.db.client.table("order_operations").select(
+                "*, orders(order_number, article, customer_name), operations_catalog(operation_key, section)"
+            ).eq("assigned_worker_id", worker_id).order("scheduled_start_at").execute().data
         except Exception as e:
-            # print(f"Error checking busy workers: {e}")
-            return set()
+            # st.error(f"Error fetching tasks: {e}")
+            return []
+
+    def update_operation_status(self, op_id, new_status, quantity_done=0):
+        """Update status and progress of an operation."""
+        data = {"status": new_status}
+        if quantity_done > 0:
+            data["completed_quantity"] = quantity_done
+        
+        # If finishing, set actual end time? (Optional, let's keep it simple)
+        if new_status == 'done':
+            # data['actual_end_at'] = datetime.now().isoformat()
+            pass
+            
+        try:
+            return self.db.client.table("order_operations").update(data).eq("id", op_id).execute()
+        except Exception as e:
+            return None
 
     def auto_schedule_order(self, order_id, assign_workers=True):
         """
