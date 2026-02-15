@@ -184,3 +184,121 @@ class AnalyticsService:
             st.error(f"Error calculating planning data: {e}")
             return pd.DataFrame()
 
+    def get_section_metrics_summary(self, target_date=None):
+        """
+        Calculate metrics for each section for a specific date (default: today).
+        Returns: List of dicts with section metrics.
+        """
+        if target_date is None:
+            target_date = datetime.now().date()
+        
+        try:
+            # Fetch all sections
+            sections_res = self.db.client.table("sections").select("id, name, capacity_minutes").execute()
+            sections = sections_res.data
+            
+            if not sections:
+                return []
+            
+            # Fetch operations for the target date
+            # We check operations where scheduled_start_at is on target_date
+            start_of_day = datetime.combine(target_date, datetime.min.time())
+            end_of_day = datetime.combine(target_date, datetime.max.time())
+            
+            ops_res = self.db.client.table("order_operations").select(
+                "section_id, assigned_worker_id, norm_time_per_unit, quantity, scheduled_start_at, scheduled_end_at"
+            ).gte("scheduled_start_at", start_of_day.isoformat()).lte("scheduled_start_at", end_of_day.isoformat()).execute()
+            
+            ops_df = pd.DataFrame(ops_res.data) if ops_res.data else pd.DataFrame()
+            
+            metrics = []
+            for section in sections:
+                sec_id = section['id']
+                sec_name = section['name']
+                capacity = section.get('capacity_minutes', 480)
+                
+                # Filter ops for this section
+                if not ops_df.empty and 'section_id' in ops_df.columns:
+                    sec_ops = ops_df[ops_df['section_id'] == sec_id]
+                else:
+                    sec_ops = pd.DataFrame()
+                
+                # Calculate scheduled minutes
+                if not sec_ops.empty:
+                    sec_ops['duration'] = sec_ops['norm_time_per_unit'] * sec_ops['quantity']
+                    scheduled_mins = sec_ops['duration'].sum()
+                    num_operations = len(sec_ops)
+                    num_workers = sec_ops['assigned_worker_id'].nunique()
+                else:
+                    scheduled_mins = 0
+                    num_operations = 0
+                    num_workers = 0
+                
+                # Utilization %
+                utilization = round((scheduled_mins / capacity * 100), 1) if capacity > 0 else 0
+                
+                metrics.append({
+                    'section_id': sec_id,
+                    'section_name': sec_name,
+                    'capacity_minutes': capacity,
+                    'scheduled_minutes': scheduled_mins,
+                    'utilization_percent': utilization,
+                    'num_operations': num_operations,
+                    'num_workers': num_workers
+                })
+            
+            return metrics
+            
+        except Exception as e:
+            st.error(f"Error calculating section metrics: {e}")
+            return []
+
+    def get_section_weekly_trend(self, section_id, num_days=7):
+        """
+        Get daily utilization trend for a section for the next N days.
+        Returns: DataFrame with columns: date, utilization_percent
+        """
+        try:
+            # Get section capacity
+            sec_res = self.db.client.table("sections").select("capacity_minutes").eq("id", section_id).execute()
+            if not sec_res.data:
+                return pd.DataFrame()
+            
+            capacity = sec_res.data[0].get('capacity_minutes', 480)
+            
+            # Date range
+            start_date = datetime.now().date()
+            dates = [start_date + timedelta(days=i) for i in range(num_days)]
+            
+            trend_data = []
+            
+            for date in dates:
+                start_of_day = datetime.combine(date, datetime.min.time())
+                end_of_day = datetime.combine(date, datetime.max.time())
+                
+                # Fetch operations for this section on this date
+                ops_res = self.db.client.table("order_operations").select(
+                    "norm_time_per_unit, quantity"
+                ).eq("section_id", section_id).gte("scheduled_start_at", start_of_day.isoformat()).lte("scheduled_start_at", end_of_day.isoformat()).execute()
+                
+                ops_df = pd.DataFrame(ops_res.data) if ops_res.data else pd.DataFrame()
+                
+                if not ops_df.empty:
+                    ops_df['duration'] = ops_df['norm_time_per_unit'] * ops_df['quantity']
+                    scheduled_mins = ops_df['duration'].sum()
+                else:
+                    scheduled_mins = 0
+                
+                utilization = round((scheduled_mins / capacity * 100), 1) if capacity > 0 else 0
+                
+                trend_data.append({
+                    'date': date,
+                    'utilization_percent': utilization,
+                    'scheduled_minutes': scheduled_mins
+                })
+            
+            return pd.DataFrame(trend_data)
+            
+        except Exception as e:
+            st.error(f"Error calculating weekly trend: {e}")
+            return pd.DataFrame()

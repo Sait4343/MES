@@ -46,36 +46,99 @@ def render():
             fig_gantt.update_yaxes(autorange="reversed")
             st.plotly_chart(fig_gantt, use_container_width=True)
             
-        # B. Workload Analysis
+        # B. Section Analytics
         st.divider()
-        c_load1, c_load2 = st.columns(2)
+        st.subheader("🏭 Аналітика по Дільницях")
         
-        with c_load1:
-            st.write("##### 🏭 Навантаження на Дільниці")
-            # Group by Section -> Sum(total_estimated_time)
-            section_load = df_plan.groupby('Section')['total_estimated_time'].sum().reset_index()
-            # Merge with capacity? df_plan has 'Section Cap' repeated.
-            # Let's exclude duplicates.
-            sec_caps = df_plan[['Section', 'Section Cap']].drop_duplicates()
+        # Get section metrics
+        section_metrics = analytics_service.get_section_metrics_summary()
+        
+        if not section_metrics:
+            st.info("Немає даних по дільницях.")
+        else:
+            # Display section cards in grid
+            num_cols = 3
+            cols = st.columns(num_cols)
             
-            merged_sec = pd.merge(section_load, sec_caps, on="Section")
-            merged_sec['Idle Capacity'] = merged_sec['Section Cap'] - merged_sec['total_estimated_time']
+            for idx, metric in enumerate(section_metrics):
+                col_idx = idx % num_cols
+                
+                with cols[col_idx]:
+                    with st.container(border=True):
+                        st.markdown(f"### {metric['section_name']}")
+                        
+                        # Metrics row
+                        m1, m2 = st.columns(2)
+                        
+                        capacity_hours = metric['capacity_minutes'] / 60
+                        scheduled_hours = metric['scheduled_minutes'] / 60
+                        
+                        m1.metric(
+                            "Завантаження", 
+                            f"{scheduled_hours:.1f}/{capacity_hours:.0f} год",
+                            delta=f"{metric['utilization_percent']}%"
+                        )
+                        m2.metric("Операції сьогодні", metric['num_operations'])
+                        
+                        # Gauge chart for utilization
+                        utilization = metric['utilization_percent']
+                        
+                        # Determine color based on utilization
+                        if utilization < 70:
+                            color = "green"
+                        elif utilization < 90:
+                            color = "orange"
+                        else:
+                            color = "red"
+                        
+                        fig_gauge = px.pie(
+                            values=[utilization, 100 - utilization],
+                            names=['Використано', 'Вільно'],
+                            hole=0.7,
+                            color_discrete_sequence=[color, '#e0e0e0']
+                        )
+                        fig_gauge.update_traces(textinfo='none', hoverinfo='label+percent')
+                        fig_gauge.update_layout(
+                            showlegend=False,
+                            height=150,
+                            margin=dict(t=0, b=0, l=0, r=0),
+                            annotations=[dict(text=f'{utilization}%', x=0.5, y=0.5, font_size=20, showarrow=False)]
+                        )
+                        st.plotly_chart(fig_gauge, use_container_width=True, key=f"gauge_{metric['section_id']}")
+                        
+                        # Weekly trend mini chart
+                        trend_df = analytics_service.get_section_weekly_trend(metric['section_id'], num_days=7)
+                        
+                        if not trend_df.empty:
+                            fig_trend = px.bar(
+                                trend_df,
+                                x='date',
+                                y='utilization_percent',
+                                title="Тиждень (прогноз)",
+                                labels={'date': 'Дата', 'utilization_percent': '%'}
+                            )
+                            fig_trend.update_layout(
+                                height=150,
+                                margin=dict(t=30, b=20, l=20, r=20),
+                                showlegend=False
+                            )
+                            fig_trend.update_xaxes(tickformat='%d.%m')
+                            st.plotly_chart(fig_trend, use_container_width=True, key=f"trend_{metric['section_id']}")
+                        
+                        # Expandable details
+                        with st.expander("📊 Детальна інформація"):
+                            st.write(f"**Потужність:** {capacity_hours:.1f} год/день")
+                            st.write(f"**Заплановано:** {scheduled_hours:.1f} год")
+                            st.write(f"**Працівників:** {metric['num_workers']}")
+                            st.write(f"**Вільно:** {(capacity_hours - scheduled_hours):.1f} год")
             
-            # Simple Bar
-            fig_sec = px.bar(
-                merged_sec, 
-                x="Section", 
-                y=["total_estimated_time", "Idle Capacity"],
-                title="Навантаження vs Потужність (хв)",
-                labels={"value": "Хвилини", "variable": "Тип"}
-            )
-            st.plotly_chart(fig_sec, use_container_width=True)
-            
-        with c_load2:
+            # C. Worker Workload (keep existing)
+            st.divider()
             st.write("##### 👷 Навантаження на Працівників")
             worker_load = df_plan[df_plan['Worker'] != 'Unassigned'].groupby('Worker')['total_estimated_time'].sum().reset_index()
-            fig_work = px.bar(worker_load, x="Worker", y="total_estimated_time", title="Зайнятість працівників (хв)")
-            st.plotly_chart(fig_work, use_container_width=True)
+            if not worker_load.empty:
+                fig_work = px.bar(worker_load, x="Worker", y="total_estimated_time", title="Зайнятість працівників (хв)")
+                st.plotly_chart(fig_work, use_container_width=True)
             
         # C. Export Schedule
         st.divider()
