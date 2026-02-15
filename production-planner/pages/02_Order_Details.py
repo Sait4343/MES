@@ -32,50 +32,102 @@ def render_gantt_chart(df):
     # Ensure datetime format
     gantt_data['Start'] = pd.to_datetime(gantt_data['scheduled_start_at'])
     gantt_data['Finish'] = pd.to_datetime(gantt_data['scheduled_end_at'])
-    gantt_data['Resource'] = gantt_data['section_name']  
-    gantt_data['Operation'] = gantt_data['operation_name']
-    gantt_data['Worker'] = gantt_data['worker_name'].fillna("Не призначено")
+    
+    # --- DATA PREPARATION FOR HIERARCHY ---
+    # We want: Section Header -> Operations -> Next Section
+    plot_rows = []
+    
+    # Group by Section and Sort by earliest start time of the section
+    # First, calculate section level stats
+    gantt_data['section_name'] = gantt_data['section_name'].fillna("Без дільниці")
+    
+    # Sort sections by their first operation's start time (to respect flow)
+    section_order = gantt_data.groupby('section_name')['Start'].min().sort_values().index.tolist()
+    
+    colors_map = {}
+    
+    for sec_name in section_order:
+        sec_ops = gantt_data[gantt_data['section_name'] == sec_name].sort_values('Start')
+        
+        # 1. Summary Row
+        sec_start = sec_ops['Start'].min()
+        sec_end = sec_ops['Finish'].max()
+        
+        plot_rows.append({
+            'Task': f"<b>🏗️ {sec_name}</b>", # Bold text for Section
+            'Start': sec_start,
+            'Finish': sec_end,
+            'Resource': 'SUMMARY', # Special tag for coloring
+            'Worker': f"Всього: {len(sec_ops)} етапів",
+            'ColorKey': 'Section',
+            'opacity': 1.0
+        })
+        
+        # 2. Operation Rows
+        for _, op in sec_ops.iterrows():
+            plot_rows.append({
+                'Task': f"&nbsp;&nbsp;&nbsp;&nbsp;🔹 {op['operation_name']}", # Indent
+                'Start': op['Start'],
+                'Finish': op['Finish'],
+                'Resource': op['section_name'],
+                'Worker': op['worker_name'] if pd.notna(op['worker_name']) else "Вакасія",
+                'ColorKey': 'Operation',
+                'opacity': 0.8
+            })
 
-    # --- 1. PROJECT SCHEDULE (Tasks) ---
+    df_plot = pd.DataFrame(plot_rows)
+
+    # --- 1. PROJECT SCHEDULE (Hierarchical) ---
     st.markdown("### 📅 Графік виконання проекту")
-    fig_tasks = px.timeline(
-        gantt_data, 
-        x_start="Start", 
-        x_end="Finish", 
-        y="Operation", 
-        color="Resource", # Color by Section
-        text="Worker",    # Show who is assigned
-        hover_data=["quantity", "norm_time_per_unit", "status"],
-        title="Хронологія операцій"
-    )
-    fig_tasks.update_yaxes(autorange="reversed", title="") # Logic order
-    fig_tasks.update_traces(textposition='inside')
-    fig_tasks.update_layout(
-        xaxis_title="Дата та Час",
-        height=400 + (len(gantt_data) * 20), # Dynamic height
-        showlegend=True
-    )
-    st.plotly_chart(fig_tasks, use_container_width=True)
+    
+    if not df_plot.empty:
+        fig_tasks = px.timeline(
+            df_plot, 
+            x_start="Start", 
+            x_end="Finish", 
+            y="Task", 
+            color="ColorKey", 
+            text="Worker",
+            hover_data=["Task", "Start", "Finish"],
+            color_discrete_map={'Section': '#2E4053', 'Operation': '#3498DB'}, # Dark Grey for Sections, Blue for Ops
+            title="Етапи робіт (Дільниці та Операції)"
+        )
+        
+        fig_tasks.update_yaxes(autorange="reversed", title="", type="category") 
+        # Needs explicit category order? Usually insertion order is preserved in Plotly if type='category'
+        
+        fig_tasks.update_traces(textposition='inside', marker_line_color='rgb(8,48,107)', marker_line_width=1.5)
+        fig_tasks.update_layout(
+            xaxis_title="Дата та Час",
+            height=400 + (len(df_plot) * 25), 
+            showlegend=False,
+            yaxis={'side': 'left'}
+        )
+        st.plotly_chart(fig_tasks, use_container_width=True)
+    else:
+        st.info("Дані відсутні.")
 
     st.divider()
 
     # --- 2. RESOURCE USAGE (Workers) ---
     st.markdown("### 👥 Завантаження ресурсів")
-    # Filter out unassigned if needed, or show them
+    # Use original data for resources
+    gantt_data['Worker'] = gantt_data['worker_name'].fillna("Не призначено")
+    
     fig_resources = px.timeline(
         gantt_data, 
         x_start="Start", 
         x_end="Finish", 
         y="Worker", 
-        color="Operation", 
-        hover_data=["Resource", "quantity"],
-        title="Графік роботи працівників"
+        color="section_name", # Color by Section here is nice
+        hover_data=["operation_name", "quantity"],
+        title="Завантаження персоналу"
     )
     fig_resources.update_yaxes(autorange="reversed", title="") 
     fig_resources.update_layout(
         xaxis_title="Дата та Час",
         height=300 + (len(gantt_data['Worker'].unique()) * 30),
-        showlegend=False # Too many operations might clutter legend
+        showlegend=True
     )
     st.plotly_chart(fig_resources, use_container_width=True)
 
