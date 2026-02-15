@@ -108,8 +108,65 @@ def main():
         with k4: render_kpi_card("Pending Tasks", "24", delta="+4", color="red") # More pending might be bad
 
         st.divider()
+
+        # --- Visual Schedule (Stacked Bar) ---
+        st.subheader("📅 Графік виконання замовлень (Visual Scheduling)")
         
-        # --- Charts ---
+        all_orders_data = service.get_all_orders_with_operations()
+        
+        if all_orders_data:
+            chart_data = []
+            for order in all_orders_data:
+                order_num = order.get('order_number')
+                for op in order.get('operations', []):
+                    sec_name = op.get('sections', {}).get('name', 'N/A')
+                    status = op.get('status', 'not_started')
+                    
+                    # Duration Mock logic (since real dates might be missing or short)
+                    # We use "Quantity" as a proxy for "Visual Weight" if dates are missing, 
+                    # OR we calculate real schedule duration.
+                    start = op.get('scheduled_start_at')
+                    end = op.get('scheduled_end_at')
+                    duration = 2.0 # Default block size
+                    
+                    if start and end:
+                        try:
+                            s = pd.to_datetime(start)
+                            e = pd.to_datetime(end)
+                            diff = (e - s).total_seconds() / 3600
+                            if diff > 0: duration = diff
+                        except: pass
+                    
+                    chart_data.append({
+                        "Order": str(order_num),
+                        "Section": sec_name,
+                        "Duration": duration,
+                        "Status": status,
+                        "Start": str(start).replace('T', ' ')[:16],
+                        "End": str(end).replace('T', ' ')[:16]
+                    })
+            
+            if chart_data:
+                df_chart = pd.DataFrame(chart_data)
+                
+                # Plotly Stacked Bar
+                fig = px.bar(
+                    df_chart,
+                    x="Order",
+                    y="Duration",
+                    color="Section",
+                    pattern_shape="Status",  # Status texture (Crosshatch vs Solid)
+                    hover_data=["Start", "End", "Status"],
+                    title="Завантаження по Замовленнях"
+                )
+                fig.update_layout(barmode='stack', xaxis_title="Order Number", yaxis_title="Est. Hours")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                 st.info("No operations data available for charting.")
+        
+        st.divider()
+        
+        # --- Alerts & Activity ---
         c_chart1, c_chart2 = st.columns([1, 1])
         
         with c_chart1:

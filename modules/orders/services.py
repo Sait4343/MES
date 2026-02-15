@@ -273,3 +273,30 @@ class OrderService:
         except Exception as e:
             # st.error(f"Error calculating distribution: {e}")
             return {}
+    def get_all_orders_with_operations(self):
+        """
+        Fetch all orders with their operations, sections, and status.
+        Optimized for visualization.
+        """
+        try:
+            # Fetch all orders
+            orders = self.db.client.table("orders").select("id, order_number, product_name, start_date, end_date").execute().data
+            
+            # Fetch all operations (could be heavy, but manageable for MVP)
+            # We need: order_id, status, scheduled_start_at, scheduled_end_at, quantity, sections(name), operations_catalog(operation_key)
+            ops = self.db.client.table("order_operations").select(
+                "order_id, status, scheduled_start_at, scheduled_end_at, quantity, sections(name), operations_catalog(operation_key)"
+            ).order("sort_order").execute().data
+            
+            # Group ops by order
+            orders_map = {o['id']: {**o, 'operations': []} for o in orders}
+            
+            for op in ops:
+                oid = op.get('order_id')
+                if oid in orders_map:
+                    orders_map[oid]['operations'].append(op)
+            
+            return list(orders_map.values())
+        except Exception as e:
+            # st.error(f"Error fetching visualization data: {e}")
+            return []
